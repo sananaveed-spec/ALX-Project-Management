@@ -1,0 +1,201 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f172a;
+  color: #f8fafc;
+  min-height: 100vh;
+}
+
+.page {
+  min-height: 100vh;
+  padding: 1.5rem;
+}
+
+.layout {
+  max-width: 40rem;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.auth-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.25rem;
+  border-radius: 0.75rem;
+  background: #1e293b;
+  border: 1px solid #334155;
+}
+
+.auth-header-text {
+  text-align: left;
+}
+
+.auth-header-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.auth-header-meta {
+  margin-top: 0.25rem;
+  color: #94a3b8;
+  font-size: 0.9rem;
+}
+
+.card {
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 1rem;
+  padding: 2rem 2.5rem;
+  width: 100%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+}
+
+.dashboard-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.welcome-message {
+  color: #e2e8f0;
+  font-size: 1.25rem;
+  line-height: 1.5;
+}
+
+.divider {
+  height: 1px;
+  width: 100%;
+  background: #334155;
+  margin: 0.25rem 0;
+}
+
+.login-panel {
+  width: min(100%, 32rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  text-align: center;
+}
+
+.microsoft-logo {
+  margin-bottom: 0.25rem;
+}
+
+.login-subtitle {
+  color: #cbd5e1;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.sign-in-button {
+  width: 100%;
+  padding: 0.75rem 1rem;
+  border: 1px solid #64748b;
+  border-radius: 0.625rem;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.sign-in-button:hover {
+  background: #1e293b;
+}
+
+.sign-in-button--disabled {
+  opacity: 0.65;
+}
+
+.config-warning {
+  width: 100%;
+  padding: 1rem;
+  border-radius: 0.75rem;
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(251, 191, 36, 0.35);
+  color: #fde68a;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  text-align: left;
+}
+
+.config-warning p {
+  margin: 0.5rem 0 0;
+}
+
+.config-warning pre {
+  margin: 0.75rem 0 0;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  background: #0f172a;
+  border: 1px solid #475569;
+  overflow-x: auto;
+  font-size: 0.8125rem;
+  color: #e2e8f0;
+}
+
+.unauthorized-panel {
+  width: min(100%, 32rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  text-align: center;
+}
+
+.unauthorized-panel h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: #f8fafc;
+}
+
+.unauthorized-panel p {
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.unauthorized-email {
+  font-size: 0.9rem;
+  color: #94a3b8;
+}
+
+.unauthorized-hint {
+  font-size: 0.875rem;
+  color: #64748b;
+}
+
+.button {
+  border: none;
+  border-radius: 0.625rem;
+  padding: 0.75rem 1.25rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.button.secondary {
+  background: #334155;
+  color: #f8fafc;
+}
+
+.button.secondary:hover {
+  background: #475569;
+}

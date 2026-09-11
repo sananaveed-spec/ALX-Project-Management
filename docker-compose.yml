@@ -1,0 +1,23 @@
+# On the server: copy .env.example → .env, fill in values, then:
+#   docker compose up -d --build
+#
+# NEXT_PUBLIC_* are passed at build time (baked into the client bundle).
+# Rebuild after changing any NEXT_PUBLIC_* value.
+services:
+  project-management:
+    build:
+      context: .
+      args:
+        NEXT_PUBLIC_AZURE_CLIENT_ID: ${NEXT_PUBLIC_AZURE_CLIENT_ID}
+        NEXT_PUBLIC_AZURE_TENANT_ID: ${NEXT_PUBLIC_AZURE_TENANT_ID}
+        NEXT_PUBLIC_ALLOWED_EMAIL_DOMAINS: ${NEXT_PUBLIC_ALLOWED_EMAIL_DOMAINS:-allumiax.com}
+        NEXT_PUBLIC_AZURE_AUTHORITY: ${NEXT_PUBLIC_AZURE_AUTHORITY:-https://login.microsoftonline.com/organizations}
+    ports:
+      # Host 3000 = Utilization, 3001 = PE License; use 3002 for this app
+      - "3002:3000"
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      HOSTNAME: "0.0.0.0"
+    restart: unless-stopped
