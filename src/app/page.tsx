@@ -2,6 +2,7 @@
 
 import { useIsAuthenticated, useMsal } from "@azure/msal-react";
 import { AuthHeader } from "@/components/AuthHeader";
+import { DashboardShell } from "@/components/DashboardShell";
 import { LoginPage } from "@/components/LoginPage";
 import { UnauthorizedPage } from "@/components/UnauthorizedPage";
 import {
@@ -19,6 +20,10 @@ export default function Home() {
     isAuthenticated && isAllowedOrganizationEmail(authenticatedEmail);
   const displayName = accounts[0]?.name ?? authenticatedEmail;
 
+  if (isAuthorized) {
+    return <DashboardShell userName={displayName} />;
+  }
+
   return (
     <main className="page">
       <div className="layout">
@@ -32,17 +37,10 @@ export default function Home() {
               <div className="divider" />
               <LoginPage />
             </>
-          ) : !isAuthorized ? (
-            <>
-              <div className="divider" />
-              <UnauthorizedPage />
-            </>
           ) : (
             <>
               <div className="divider" />
-              <p className="welcome-message">
-                Welcome, <strong>{displayName}</strong>.
-              </p>
+              <UnauthorizedPage />
             </>
           )}
         </div>
