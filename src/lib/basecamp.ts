@@ -301,6 +301,56 @@ export async function fileProjectIntoBasecampFolder(
   await createBasecampFolder(accessToken, folderName, nextIds);
 }
 
+export async function findBasecampProjectByName(name: string): Promise<{
+  id: number;
+  name: string;
+  app_url?: string;
+} | null> {
+  const accessToken = await getValidBasecampAccessToken();
+  if (!accessToken) {
+    throw new Error(
+      "Basecamp is not connected. Connect Basecamp first, then try again.",
+    );
+  }
+
+  const target = name.trim().toLowerCase();
+  if (!target) {
+    return null;
+  }
+
+  const response = await basecampApiFetch("/projects.json", {
+    method: "GET",
+    accessToken,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Basecamp list projects failed: ${text}`);
+  }
+
+  const projects = (await response.json()) as Array<{
+    id?: number;
+    name?: string;
+    app_url?: string;
+    status?: string;
+  }>;
+
+  const match = projects.find(
+    (project) =>
+      typeof project.id === "number" &&
+      project.name?.trim().toLowerCase() === target,
+  );
+
+  if (!match || typeof match.id !== "number") {
+    return null;
+  }
+
+  return {
+    id: match.id,
+    name: match.name?.trim() || name.trim(),
+    app_url: match.app_url,
+  };
+}
+
 export async function createBasecampProject(input: {
   name: string;
   description?: string;
@@ -312,12 +362,20 @@ export async function createBasecampProject(input: {
     );
   }
 
+  const projectName = input.name.trim();
+  const existing = await findBasecampProjectByName(projectName);
+  if (existing) {
+    throw new Error(
+      `A Basecamp project named "${projectName}" already exists. Uncheck Create on Basecamp, or use a different Full Name.`,
+    );
+  }
+
   const { folderName } = getBasecampConfig();
   const response = await basecampApiFetch("/projects.json", {
     method: "POST",
     accessToken,
     body: JSON.stringify({
-      name: input.name,
+      name: projectName,
       description: input.description ?? "",
     }),
   });

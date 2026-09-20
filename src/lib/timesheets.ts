@@ -52,14 +52,23 @@ export async function listActiveTimesheetsUsers(): Promise<TimesheetsUser[]> {
   }
 
   const { apiToken } = getTimesheetsConfig();
-  const response = await fetch(orgMembersUrl(), {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
+  let response: Response;
+  try {
+    response = await fetch(orgMembersUrl(), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        Accept: "application/json",
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    const detail =
+      error instanceof Error ? error.message : "Unknown network error";
+    throw new Error(
+      `Could not reach ATS / Timesheets to load engineers (${detail}). Check network and TIMESHEETS_API_BASE_URL.`,
+    );
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -71,10 +80,12 @@ export async function listActiveTimesheetsUsers(): Promise<TimesheetsUser[]> {
       id?: string;
       name?: string | null;
       email?: string | null;
+      is_placeholder?: boolean | null;
     }>;
   };
 
   return (json.data ?? [])
+    .filter((member) => member.is_placeholder !== true)
     .map((member) => ({
       id: member.id?.trim() || "",
       name: member.name?.trim() || "",
@@ -84,6 +95,54 @@ export async function listActiveTimesheetsUsers(): Promise<TimesheetsUser[]> {
     .sort((a, b) =>
       a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
     );
+}
+
+export async function findTimesheetsProjectByName(name: string): Promise<{
+  id: string;
+  name: string;
+} | null> {
+  if (!isTimesheetsConfigured()) {
+    throw new Error(
+      "ATS / Timesheets is not configured. Set TIMESHEETS_API_TOKEN and TIMESHEETS_ORGANIZATION_ID.",
+    );
+  }
+
+  const target = name.trim().toLowerCase();
+  if (!target) {
+    return null;
+  }
+
+  const { apiToken } = getTimesheetsConfig();
+  const response = await fetch(orgProjectsUrl(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`ATS list projects failed (${response.status}): ${text}`);
+  }
+
+  const json = (await response.json()) as {
+    data?: Array<{ id?: string; name?: string | null }>;
+  };
+
+  const match = (json.data ?? []).find(
+    (project) => project.name?.trim().toLowerCase() === target,
+  );
+
+  if (!match?.id) {
+    return null;
+  }
+
+  return {
+    id: match.id,
+    name: match.name?.trim() || name.trim(),
+  };
 }
 
 export async function createTimesheetsProject(input: {
@@ -98,6 +157,14 @@ export async function createTimesheetsProject(input: {
     );
   }
 
+  const projectName = input.name.trim();
+  const existing = await findTimesheetsProjectByName(projectName);
+  if (existing) {
+    throw new Error(
+      `An ATS / Timesheets project named "${projectName}" already exists. Uncheck Create on ATS, or use a different Full Name.`,
+    );
+  }
+
   const { apiToken } = getTimesheetsConfig();
   const response = await fetch(orgProjectsUrl(), {
     method: "POST",
@@ -107,7 +174,7 @@ export async function createTimesheetsProject(input: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      name: input.name,
+      name: projectName,
       color: input.color || DEFAULT_PROJECT_COLOR,
       is_billable: input.isBillable ?? true,
       is_public: input.isPublic ?? true,
@@ -126,6 +193,6 @@ export async function createTimesheetsProject(input: {
 
   return {
     id: json.data?.id,
-    name: json.data?.name ?? input.name,
+    name: json.data?.name ?? projectName,
   };
 }

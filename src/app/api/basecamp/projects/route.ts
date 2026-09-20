@@ -29,7 +29,11 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to create Basecamp project.";
-    const status = message.toLowerCase().includes("not connected") ? 401 : 500;
+    const status = message.toLowerCase().includes("not connected")
+      ? 401
+      : message.toLowerCase().includes("already exists")
+        ? 409
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

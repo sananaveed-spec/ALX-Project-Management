@@ -483,7 +483,6 @@ export function ReadyToInvoicePanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <h2 className="section-title">Ready to Invoice</h2>
 
       {error ? (
         <p className="form-message error" role="alert">

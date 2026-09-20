@@ -82,21 +82,26 @@ export function NewCustomerDialog({
   }
 
   return createPortal(
-    <div
-      className="dialog-backdrop"
-      role="presentation"
-      onClick={onClose}
-    >
+    <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onClick={(event) => event.stopPropagation()}
       >
-        <h2 id={titleId} className="dialog-title">
-          {mode === "edit" ? "Edit Customer" : "New Customer"}
-        </h2>
+        <div className="dialog-header">
+          <h2 id={titleId} className="dialog-title">
+            {mode === "edit" ? "Edit Customer" : "New Customer"}
+          </h2>
+          <button
+            type="button"
+            className="dialog-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
 
         <form className="dialog-form" onSubmit={handleSubmit}>
           <label className="field">

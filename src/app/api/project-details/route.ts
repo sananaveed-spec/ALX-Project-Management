@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
-import { readProjectDetails, writeProjectDetails } from "@/lib/data-store";
+import {
+  readCompletedProjects,
+  readProjectDetails,
+  readProjects,
+  writeProjectDetails,
+} from "@/lib/data-store";
 import {
   normalizeProjectDetail,
+  syncProjectDetailsFromNaming,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
 
@@ -9,8 +15,30 @@ export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const projectDetails = await readProjectDetails();
-    return NextResponse.json({ projectDetails });
+    const [projectDetails, namingProjects, completedProjects] =
+      await Promise.all([
+        readProjectDetails(),
+        readProjects(),
+        readCompletedProjects(),
+      ]);
+
+    const synced = syncProjectDetailsFromNaming(
+      projectDetails,
+      namingProjects,
+      completedProjects.map((row) => row.displayId),
+    );
+
+    if (synced.added > 0 || synced.updated > 0) {
+      await writeProjectDetails(synced.rows);
+    }
+
+    return NextResponse.json({
+      projectDetails: synced.rows,
+      syncedFromNaming: {
+        added: synced.added,
+        updated: synced.updated,
+      },
+    });
   } catch (error) {
     const message =
       error instanceof Error

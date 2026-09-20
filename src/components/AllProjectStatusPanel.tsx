@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
-  sortCompletedProjectsNewestFirst,
-  type CompletedProjectEntry,
-} from "@/lib/completed-projects";
+  buildAllProjectStatusRows,
+  formatStatusPercent,
+  type AllProjectStatusRow,
+} from "@/lib/all-project-status";
+import type { CompletedProjectEntry } from "@/lib/completed-projects";
+import type { ProjectDetailEntry } from "@/lib/project-details";
 
 const PAGE_SIZE = 50;
 
@@ -12,57 +15,63 @@ const TABLE_HEADERS = [
   "ID",
   "Customer",
   "Project Name",
-  "Date",
-  "Project Engineer",
-  "PROJECT HISTORY",
-  "Partial Invoice Date",
-  "Invoiced Date",
-  "Final Report Sent on",
-  "Project Completed",
-  "Labels Shipped",
+  "Status",
+  "%",
+  "Phase",
 ] as const;
 
 function cell(value: string) {
   return value.trim() ? value : "—";
 }
 
-function formatDateLabel(value: string) {
-  if (!value.trim()) {
-    return "—";
+function matchesQuery(row: AllProjectStatusRow, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
   }
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(-2);
-  return `${month}/${day}/${year}`;
+  return (
+    row.displayId.toLowerCase().includes(q) ||
+    row.customer.toLowerCase().includes(q) ||
+    row.projectName.toLowerCase().includes(q) ||
+    row.status.toLowerCase().includes(q) ||
+    row.phase.toLowerCase().includes(q)
+  );
 }
 
-export function CompletedProjectsPanel() {
-  const [rows, setRows] = useState<CompletedProjectEntry[]>([]);
+export function AllProjectStatusPanel() {
+  const [rows, setRows] = useState<AllProjectStatusRow[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRows() {
       try {
-        const response = await fetch("/api/completed-projects", {
-          cache: "no-store",
-        });
-        if (!response.ok) {
+        const [activeResponse, completedResponse] = await Promise.all([
+          fetch("/api/project-details", { cache: "no-store" }),
+          fetch("/api/completed-projects", { cache: "no-store" }),
+        ]);
+        if (!activeResponse.ok) {
+          throw new Error("Could not load projects.");
+        }
+        if (!completedResponse.ok) {
           throw new Error("Could not load completed projects.");
         }
-        const data = (await response.json()) as {
+        const activeData = (await activeResponse.json()) as {
+          projectDetails?: ProjectDetailEntry[];
+        };
+        const completedData = (await completedResponse.json()) as {
           completedProjects?: CompletedProjectEntry[];
         };
         if (!cancelled) {
           setRows(
-            sortCompletedProjectsNewestFirst(data.completedProjects ?? []),
+            buildAllProjectStatusRows({
+              active: activeData.projectDetails ?? [],
+              completed: completedData.completedProjects ?? [],
+            }),
           );
           setError(null);
         }
@@ -71,7 +80,7 @@ export function CompletedProjectsPanel() {
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Could not load completed projects.",
+              : "Could not load all project status.",
           );
         }
       } finally {
@@ -87,13 +96,34 @@ export function CompletedProjectsPanel() {
     };
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const filtered = useMemo(
+    () => rows.filter((row) => matchesQuery(row, query)),
+    [rows, query],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <section className="content-panel content-panel--actions">
+      <div className="table-toolbar">
+        <label className="field" style={{ margin: 0, flex: 1, maxWidth: "22rem" }}>
+          <span className="field-label">Search</span>
+          <input
+            className="field-input"
+            type="search"
+            value={query}
+            placeholder="ID, customer, name, status, or phase"
+            onChange={(event) => setQuery(event.target.value)}
+          />
+        </label>
+      </div>
 
       {error ? (
         <p className="form-message error" role="alert">
@@ -102,7 +132,7 @@ export function CompletedProjectsPanel() {
       ) : null}
 
       {!ready ? (
-        <p className="table-empty">Loading completed projects…</p>
+        <p className="table-empty">Loading all project status…</p>
       ) : (
         <>
           <div className="table-wrap">
@@ -130,8 +160,9 @@ export function CompletedProjectsPanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No completed projects yet. Mark Project Completed on the
-                      Projects tab.
+                      {query.trim()
+                        ? "No matching projects."
+                        : "No projects yet."}
                     </td>
                   </tr>
                 ) : (
@@ -146,18 +177,9 @@ export function CompletedProjectsPanel() {
                       <td className="col-sticky col-sticky-3">
                         {cell(row.projectName)}
                       </td>
-                      <td>{formatDateLabel(row.date)}</td>
-                      <td>{cell(row.engineer)}</td>
-                      <td>
-                        <span className="table-preview-text">
-                          {cell(row.projectHistory)}
-                        </span>
-                      </td>
-                      <td>{cell(row.partialInvoiceDate)}</td>
-                      <td>{cell(row.invoicedDate)}</td>
-                      <td>{cell(row.finalReportSentOn)}</td>
-                      <td>{formatDateLabel(row.projectCompleted)}</td>
-                      <td>{cell(row.labelsShipped)}</td>
+                      <td>{cell(row.status)}</td>
+                      <td>{formatStatusPercent(row.percent)}</td>
+                      <td>{cell(row.phase)}</td>
                     </tr>
                   ))
                 )}
@@ -165,7 +187,7 @@ export function CompletedProjectsPanel() {
             </table>
           </div>
 
-          {rows.length > PAGE_SIZE ? (
+          {filtered.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -179,8 +201,8 @@ export function CompletedProjectsPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, rows.length)} of{" "}
-                  {rows.length})
+                  {Math.min(pageStart + PAGE_SIZE, filtered.length)} of{" "}
+                  {filtered.length})
                 </span>
               </span>
               <button

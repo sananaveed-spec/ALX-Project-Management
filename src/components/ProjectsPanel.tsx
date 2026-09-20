@@ -99,12 +99,6 @@ const PROJECT_TABLE_HEADERS = [
   "Final SCCS Sent",
 ] as const;
 
-type AtsUser = {
-  id: string;
-  name: string;
-  email: string;
-};
-
 type MultilineField =
   | "recentActivity"
   | "pmActionItems"
@@ -190,9 +184,10 @@ export function ProjectsPanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [engineers, setEngineers] = useState<AtsUser[]>([]);
-  const [engineersError, setEngineersError] = useState<string | null>(null);
-  const [engineersLoading, setEngineersLoading] = useState(true);
+  /** UniqueID → engineer from Project Naming (source of truth for display). */
+  const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
+    Record<string, string>
+  >({});
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [multilineEditor, setMultilineEditor] =
     useState<MultilineEditorState | null>(null);
@@ -256,35 +251,38 @@ export function ProjectsPanel() {
   useEffect(() => {
     let cancelled = false;
 
-    async function loadEngineers() {
-      setEngineersLoading(true);
+    async function loadNamingEngineers() {
       try {
-        const response = await fetch("/api/timesheets/users");
+        const response = await fetch("/api/projects", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Could not load Project Naming engineers.");
+        }
         const data = (await response.json()) as {
-          users?: AtsUser[];
-          error?: string;
+          projects?: Array<{
+            id?: string;
+            uniqueId?: string;
+            engineer?: string;
+          }>;
         };
         if (!cancelled) {
-          setEngineers(data.users ?? []);
-          setEngineersError(
-            response.ok
-              ? null
-              : data.error || "Could not load ATS engineers.",
-          );
+          const byUniqueId: Record<string, string> = {};
+          for (const project of data.projects ?? []) {
+            const uniqueId = project.uniqueId?.trim() ?? "";
+            const engineer = project.engineer?.trim() ?? "";
+            if (uniqueId && engineer) {
+              byUniqueId[uniqueId.toLowerCase()] = engineer;
+            }
+          }
+          setNamingEngineerByUniqueId(byUniqueId);
         }
       } catch {
         if (!cancelled) {
-          setEngineers([]);
-          setEngineersError("Could not load ATS engineers.");
-        }
-      } finally {
-        if (!cancelled) {
-          setEngineersLoading(false);
+          setNamingEngineerByUniqueId({});
         }
       }
     }
 
-    void loadEngineers();
+    void loadNamingEngineers();
     return () => {
       cancelled = true;
     };
@@ -730,17 +728,14 @@ export function ProjectsPanel() {
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
 
-  const engineerOptions = (() => {
-    const names = new Set(engineers.map((user) => user.name));
-    for (const row of rows) {
-      if (row.engineer.trim()) {
-        names.add(row.engineer.trim());
-      }
+  function engineerFromNaming(row: ProjectDetailEntry) {
+    const fromNaming =
+      namingEngineerByUniqueId[row.displayId.trim().toLowerCase()];
+    if (fromNaming?.trim()) {
+      return fromNaming.trim();
     }
-    return [...names].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
-  })();
+    return row.engineer.trim();
+  }
 
   const statusOptions = (() => {
     const options = new Set<string>(PROJECT_STATUS_OPTIONS);
@@ -774,8 +769,7 @@ export function ProjectsPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <div className="panel-title-row">
-        <h2 className="section-title">Projects</h2>
+      <div className="panel-title-row panel-title-row--actions-only">
         <button
           type="button"
           className="button secondary"
@@ -789,12 +783,6 @@ export function ProjectsPanel() {
       {error ? (
         <p className="form-message error" role="alert">
           {error}
-        </p>
-      ) : null}
-
-      {engineersError ? (
-        <p className="form-message error" role="alert">
-          {engineersError}
         </p>
       ) : null}
 
@@ -845,35 +833,7 @@ export function ProjectsPanel() {
                           ? formatDateLabel(row.projectInitializeDate)
                           : "—"}
                       </td>
-                      <td>
-                        <select
-                          className="field-input field-select table-select"
-                          value={row.engineer}
-                          disabled={
-                            engineersLoading ||
-                            savingKey === savingKeyFor(row.id, "engineer")
-                          }
-                          aria-label={`Engineer for ${row.projectName || row.displayId}`}
-                          onChange={(event) =>
-                            void handleFieldChange(
-                              row.id,
-                              "engineer",
-                              event.target.value,
-                            )
-                          }
-                        >
-                          <option value="">
-                            {engineersLoading
-                              ? "Loading engineers…"
-                              : "Select engineer"}
-                          </option>
-                          {engineerOptions.map((name) => (
-                            <option key={name} value={name}>
-                              {name}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
+                      <td>{cell(engineerFromNaming(row))}</td>
                       <td>
                         <select
                           className="field-input field-select table-select table-select--status"

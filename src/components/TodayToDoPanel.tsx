@@ -218,12 +218,6 @@ export function TodayToDoPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <h2 className="section-title">Today To-Do List</h2>
-      <p className="dialog-subtitle">
-        Projects whose PM Action Items Date is today or earlier. Done moves
-        Reminder → Recent Activity (clears Reminder), same as Excel.
-      </p>
-
       {error ? (
         <p className="form-message error" role="alert">
           {error}

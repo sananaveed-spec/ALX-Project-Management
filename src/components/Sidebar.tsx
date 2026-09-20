@@ -9,7 +9,11 @@ export type DashboardTab =
   | "details"
   | "readyToInvoice"
   | "todayToDo"
-  | "completedProjects";
+  | "projectHistory"
+  | "completedProjects"
+  | "invoicingHistory"
+  | "engineerLoad"
+  | "allProjectStatus";
 
 const NAV_ITEMS: { id: DashboardTab; label: string }[] = [
   { id: "naming", label: "Project Naming" },
@@ -17,7 +21,11 @@ const NAV_ITEMS: { id: DashboardTab; label: string }[] = [
   { id: "details", label: "Projects" },
   { id: "readyToInvoice", label: "Ready to Invoice" },
   { id: "todayToDo", label: "Today To-Do List" },
+  { id: "projectHistory", label: "Project History" },
   { id: "completedProjects", label: "Completed Projects" },
+  { id: "invoicingHistory", label: "Invoicing History" },
+  { id: "engineerLoad", label: "Engineer Load" },
+  { id: "allProjectStatus", label: "All Project Status" },
 ];
 
 type SidebarProps = {

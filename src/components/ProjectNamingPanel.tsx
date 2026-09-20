@@ -13,7 +13,7 @@ import {
   upsertProjectDetailFromNaming,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
-import { getUniqueIdConflict, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
+import { getUniqueIdConflict, normalizeProject, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
 
 type TableView = "new" | "all";
 
@@ -36,6 +36,12 @@ function formatAwardDate(value: string) {
   });
 }
 
+function cell(value: string | null | undefined) {
+  return value?.trim() ? value : "—";
+}
+
+const NAMING_TABLE_COL_COUNT = 12;
+
 async function persistProjects(projects: ProjectEntry[]) {
   const response = await fetch("/api/projects", {
     method: "PUT",
@@ -55,6 +61,7 @@ async function persistProjectDetailFromNaming(input: {
   customer: string;
   projectName: string;
   awardDate: string;
+  engineer?: string;
 }) {
   const response = await fetch("/api/project-details");
   if (!response.ok) {
@@ -109,7 +116,13 @@ export function ProjectNamingPanel() {
 
         const data = (await response.json()) as { projects?: ProjectEntry[] };
         if (!cancelled) {
-          setProjects(sortProjectsNewestFirst(data.projects ?? []));
+          setProjects(
+            sortProjectsNewestFirst(
+              (data.projects ?? []).map((project) =>
+                normalizeProject(project),
+              ),
+            ),
+          );
           setError(null);
         }
       } catch (loadError) {
@@ -170,6 +183,7 @@ export function ProjectNamingPanel() {
     customer: string;
     projectName: string;
     awardDate: string;
+    engineer?: string;
   }) {
     try {
       await persistProjectDetailFromNaming(input);
@@ -191,6 +205,39 @@ export function ProjectNamingPanel() {
     createOnBasecamp?: boolean;
     createOnAts?: boolean;
   }) {
+    async function readErrorMessage(
+      response: Response,
+      fallback: string,
+    ): Promise<string> {
+      try {
+        const data = (await response.json()) as { error?: string };
+        if (data.error?.trim()) {
+          return data.error.trim();
+        }
+      } catch {
+        // non-JSON body
+      }
+      try {
+        const text = (await response.text()).trim();
+        if (text) {
+          return text;
+        }
+      } catch {
+        // ignore
+      }
+      return fallback;
+    }
+
+    function networkErrorMessage(error: unknown, label: string) {
+      if (
+        error instanceof TypeError &&
+        /failed to fetch|networkerror|load failed/i.test(error.message)
+      ) {
+        return `${label}: network error (server may have restarted). Try again.`;
+      }
+      return error instanceof Error ? error.message : label;
+    }
+
     if (values.createOnBasecamp) {
       try {
         const statusResponse = await fetch("/api/basecamp/status");
@@ -218,14 +265,19 @@ export function ProjectNamingPanel() {
         });
 
         if (!createResponse.ok) {
-          const data = (await createResponse.json()) as { error?: string };
-          throw new Error(data.error || "Failed to create Basecamp project.");
+          throw new Error(
+            await readErrorMessage(
+              createResponse,
+              "Failed to create Basecamp project.",
+            ),
+          );
         }
       } catch (basecampError) {
         setError(
-          basecampError instanceof Error
-            ? basecampError.message
-            : "Failed to create Basecamp project.",
+          networkErrorMessage(
+            basecampError,
+            "Failed to create Basecamp project.",
+          ),
         );
         return false;
       }
@@ -253,14 +305,16 @@ export function ProjectNamingPanel() {
         });
 
         if (!createResponse.ok) {
-          const data = (await createResponse.json()) as { error?: string };
-          throw new Error(data.error || "Failed to create ATS project.");
+          throw new Error(
+            await readErrorMessage(
+              createResponse,
+              "Failed to create ATS project.",
+            ),
+          );
         }
       } catch (atsError) {
         setError(
-          atsError instanceof Error
-            ? atsError.message
-            : "Failed to create ATS project.",
+          networkErrorMessage(atsError, "Failed to create ATS project."),
         );
         return false;
       }
@@ -273,12 +327,12 @@ export function ProjectNamingPanel() {
     const conflict = getUniqueIdConflict(values.uniqueId, projects);
     if (conflict) {
       setError(conflict);
-      return;
+      return false;
     }
 
     const externalOk = await createOnExternalSystems(values);
     if (!externalOk) {
-      return;
+      return false;
     }
 
     const id = `${Date.now()}-${projects.length}`;
@@ -291,6 +345,9 @@ export function ProjectNamingPanel() {
       no: values.no,
       uniqueId: values.uniqueId,
       fullName: values.fullName,
+      engineer: values.engineer?.trim() ?? "",
+      basecamp: values.createOnBasecamp ? "Yes" : "",
+      ats: values.createOnAts ? "Yes" : "",
     };
     const nextProjects = [nextProject, ...projects];
 
@@ -299,7 +356,7 @@ export function ProjectNamingPanel() {
     setSelectedIds([]);
     const saved = await saveProjects(nextProjects);
     if (!saved) {
-      return;
+      return false;
     }
     await syncProjectsTabRow({
       namingProjectId: id,
@@ -307,19 +364,21 @@ export function ProjectNamingPanel() {
       customer: values.customer,
       projectName: values.projectName,
       awardDate: values.awardDate,
+      engineer: values.engineer,
     });
+    return true;
   }
 
   async function handleSaveExistingVersion(values: ExistingProjectSaveValues) {
     const conflict = getUniqueIdConflict(values.uniqueId, projects);
     if (conflict) {
       setError(conflict);
-      return;
+      return false;
     }
 
     const externalOk = await createOnExternalSystems(values);
     if (!externalOk) {
-      return;
+      return false;
     }
 
     const id = `${Date.now()}-${projects.length}`;
@@ -332,6 +391,9 @@ export function ProjectNamingPanel() {
       no: values.no,
       uniqueId: values.uniqueId,
       fullName: values.fullName,
+      engineer: values.engineer?.trim() ?? "",
+      basecamp: values.createOnBasecamp ? "Yes" : "",
+      ats: values.createOnAts ? "Yes" : "",
     };
     const nextProjects = [nextProject, ...projects];
 
@@ -340,7 +402,7 @@ export function ProjectNamingPanel() {
     setSelectedIds([]);
     const saved = await saveProjects(nextProjects);
     if (!saved) {
-      return;
+      return false;
     }
     await syncProjectsTabRow({
       namingProjectId: id,
@@ -348,12 +410,14 @@ export function ProjectNamingPanel() {
       customer: values.customer,
       projectName: values.projectName,
       awardDate: values.awardDate,
+      engineer: values.engineer,
     });
+    return true;
   }
 
   async function handleEditProject(values: NewProjectFormValues) {
     if (!editingProject) {
-      return;
+      return false;
     }
 
     const conflict = getUniqueIdConflict(
@@ -363,18 +427,55 @@ export function ProjectNamingPanel() {
     );
     if (conflict) {
       setError(conflict);
-      return;
+      return false;
     }
 
+    const alreadyBasecamp =
+      editingProject.basecamp?.trim().toLowerCase() === "yes";
+    const alreadyAts = editingProject.ats?.trim().toLowerCase() === "yes";
+    const externalOk = await createOnExternalSystems({
+      ...values,
+      createOnBasecamp: Boolean(values.createOnBasecamp) && !alreadyBasecamp,
+      createOnAts: Boolean(values.createOnAts) && !alreadyAts,
+    });
+    if (!externalOk) {
+      return false;
+    }
+
+    const namingProjectId = editingProject.id;
     const nextProjects = projects.map((project) =>
-      project.id === editingProject.id
-        ? { ...project, ...values }
+      project.id === namingProjectId
+        ? {
+            ...project,
+            projectName: values.projectName,
+            customer: values.customer,
+            awardDate: values.awardDate,
+            year: values.year,
+            no: values.no,
+            uniqueId: values.uniqueId,
+            fullName: values.fullName,
+            engineer: values.engineer?.trim() ?? "",
+            basecamp: values.createOnBasecamp ? "Yes" : "",
+            ats: values.createOnAts ? "Yes" : "",
+          }
         : project,
     );
 
     setEditingProject(null);
     setMenuOpenId(null);
-    await saveProjects(nextProjects);
+    const saved = await saveProjects(nextProjects);
+    if (!saved) {
+      return false;
+    }
+    await syncProjectsTabRow({
+      namingProjectId,
+      uniqueId: values.uniqueId,
+      customer: values.customer,
+      projectName: values.projectName,
+      awardDate: values.awardDate,
+      engineer: values.engineer,
+    });
+    return true;
   }
 
   async function handleDeleteSelected() {
@@ -474,7 +575,6 @@ export function ProjectNamingPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <h2 className="section-title">Project Naming</h2>
       <div className="action-row">
         <button
           type="button"
@@ -569,6 +669,9 @@ export function ProjectNamingPanel() {
                   <th>No</th>
                   <th>UniqueID</th>
                   <th>Full Name</th>
+                  <th>Engineer</th>
+                  <th>Basecamp</th>
+                  <th>ATS</th>
                   <th className="col-actions">Actions</th>
                 </tr>
               </thead>
@@ -577,7 +680,7 @@ export function ProjectNamingPanel() {
                   ? groupedVisibleProjects.map((group) => (
                       <Fragment key={`group-${groupBy}-${group.label}`}>
                         <tr className="group-row">
-                          <td colSpan={9}>
+                          <td colSpan={NAMING_TABLE_COL_COUNT}>
                             <span className="group-row-label">
                               {groupBy === "client"
                                 ? `Client: ${group.label}`
@@ -611,6 +714,9 @@ export function ProjectNamingPanel() {
                               <td>{project.no}</td>
                               <td>{project.uniqueId}</td>
                               <td>{project.fullName}</td>
+                              <td>{cell(project.engineer)}</td>
+                              <td>{cell(project.basecamp)}</td>
+                              <td>{cell(project.ats)}</td>
                               <td className="col-actions">
                                 <div
                                   className="row-menu"
@@ -678,6 +784,9 @@ export function ProjectNamingPanel() {
                           <td>{project.no}</td>
                           <td>{project.uniqueId}</td>
                           <td>{project.fullName}</td>
+                          <td>{cell(project.engineer)}</td>
+                          <td>{cell(project.basecamp)}</td>
+                          <td>{cell(project.ats)}</td>
                           <td className="col-actions">
                             <div
                               className="row-menu"
@@ -779,6 +888,12 @@ export function ProjectNamingPanel() {
         mode="edit"
         existingProjects={projects}
         excludeProjectId={editingProject?.id ?? null}
+        initialCreateOnBasecamp={
+          editingProject?.basecamp?.trim().toLowerCase() === "yes"
+        }
+        initialCreateOnAts={
+          editingProject?.ats?.trim().toLowerCase() === "yes"
+        }
         initialValues={
           editingProject
             ? {
@@ -787,6 +902,7 @@ export function ProjectNamingPanel() {
                 awardDate: editingProject.awardDate,
                 year: editingProject.year,
                 no: editingProject.no,
+                engineer: editingProject.engineer ?? "",
               }
             : null
         }

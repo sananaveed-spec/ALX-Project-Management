@@ -24,7 +24,11 @@ export async function POST(request: Request) {
       error instanceof Error
         ? error.message
         : "Failed to create ATS project.";
-    const status = message.toLowerCase().includes("not configured") ? 503 : 500;
+    const status = message.toLowerCase().includes("not configured")
+      ? 503
+      : message.toLowerCase().includes("already exists")
+        ? 409
+        : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

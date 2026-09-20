@@ -78,6 +78,33 @@ export function reminderFieldsForStatus(status: string): {
   return null;
 }
 
+/** True when Invoiced should appear on the Invoicing History tab. */
+export function isPartialOrFullInvoiced(invoiced: string): boolean {
+  const normalized = invoiced.trim().toUpperCase().replace(/\s+/g, " ");
+  return normalized === "PARTIAL" || normalized === "FULL";
+}
+
+/** Excel Invoicing History col S: prefer append history, else legacy date field. */
+export function partialInvoicesDisplay(row: {
+  partialInvoiceHistory: string;
+  partialInvoicingDate: string;
+}): string {
+  const history = row.partialInvoiceHistory.trim();
+  if (history) {
+    return history;
+  }
+  return row.partialInvoicingDate.trim();
+}
+
+/** Rows for Invoicing History (PARTAL/FULL), newest Projects rows first. */
+export function filterInvoicingHistoryRows(
+  rows: ProjectDetailEntry[],
+): ProjectDetailEntry[] {
+  return sortProjectDetailsNewestFirst(
+    rows.filter((row) => isPartialOrFullInvoiced(row.invoiced)),
+  );
+}
+
 /** True when Projects → Invoiced should appear on the Ready to Invoice tab. */
 export function isReadyToInvoice(invoiced: string): boolean {
   const normalized = invoiced.trim().toUpperCase().replace(/\s+/g, " ");
@@ -169,6 +196,7 @@ export function projectDetailFromNaming(input: {
   customer: string;
   projectName: string;
   awardDate: string;
+  engineer?: string;
 }): ProjectDetailEntry {
   return normalizeProjectDetail({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -176,6 +204,7 @@ export function projectDetailFromNaming(input: {
     customer: input.customer.trim(),
     projectName: input.projectName.trim(),
     projectInitializeDate: input.awardDate.trim(),
+    engineer: input.engineer?.trim() ?? "",
     namingProjectId: input.namingProjectId,
   });
 }
@@ -242,6 +271,8 @@ export function upsertProjectDetailFromNaming(
     customer: string;
     projectName: string;
     awardDate: string;
+    /** When set on create (or explicit update), writes Projects → Engineer. */
+    engineer?: string;
   },
 ): ProjectDetailEntry[] {
   const displayId = input.uniqueId.trim();
@@ -261,6 +292,9 @@ export function upsertProjectDetailFromNaming(
       projectName: input.projectName.trim(),
       projectInitializeDate: input.awardDate.trim(),
       namingProjectId: input.namingProjectId,
+      ...(input.engineer !== undefined
+        ? { engineer: input.engineer.trim() }
+        : {}),
     };
     return sortProjectDetailsNewestFirst(next);
   }
@@ -269,4 +303,74 @@ export function upsertProjectDetailFromNaming(
     projectDetailFromNaming(input),
     ...rows,
   ]);
+}
+
+/**
+ * Ensure every Project Naming row has a Projects tab row.
+ * Skips UniqueIDs already in Completed Projects (so completed work stays archived).
+ */
+export function syncProjectDetailsFromNaming(
+  details: ProjectDetailEntry[],
+  naming: Array<{
+    id: string;
+    uniqueId: string;
+    customer: string;
+    projectName: string;
+    awardDate: string;
+  }>,
+  completedDisplayIds: Iterable<string> = [],
+): { rows: ProjectDetailEntry[]; added: number; updated: number } {
+  const completed = new Set(
+    [...completedDisplayIds]
+      .map((id) => id.trim().toLowerCase())
+      .filter(Boolean),
+  );
+
+  let rows = details;
+  let added = 0;
+  let updated = 0;
+
+  for (const named of naming) {
+    const uniqueId = named.uniqueId.trim();
+    if (!uniqueId) {
+      continue;
+    }
+    if (completed.has(uniqueId.toLowerCase())) {
+      continue;
+    }
+
+    const existing = rows.find(
+      (row) =>
+        row.displayId.trim().toLowerCase() === uniqueId.toLowerCase() ||
+        row.namingProjectId === named.id,
+    );
+
+    const input = {
+      namingProjectId: named.id,
+      uniqueId,
+      customer: named.customer,
+      projectName: named.projectName,
+      awardDate: named.awardDate,
+    };
+
+    if (!existing) {
+      rows = upsertProjectDetailFromNaming(rows, input);
+      added += 1;
+      continue;
+    }
+
+    const needsUpdate =
+      existing.displayId.trim() !== uniqueId ||
+      existing.customer.trim() !== named.customer.trim() ||
+      existing.projectName.trim() !== named.projectName.trim() ||
+      existing.projectInitializeDate.trim() !== named.awardDate.trim() ||
+      existing.namingProjectId !== named.id;
+
+    if (needsUpdate) {
+      rows = upsertProjectDetailFromNaming(rows, input);
+      updated += 1;
+    }
+  }
+
+  return { rows, added, updated };
 }

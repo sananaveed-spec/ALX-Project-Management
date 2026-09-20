@@ -20,15 +20,23 @@ export type ExistingProjectSaveValues = {
   no: string;
   uniqueId: string;
   fullName: string;
+  /** Optional; written to Projects → Engineer on create. */
+  engineer?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
+};
+
+type AtsUser = {
+  id: string;
+  name: string;
+  email: string;
 };
 
 type ExistingProjectDialogProps = {
   open: boolean;
   onClose: () => void;
   projects: ProjectEntry[];
-  onSave?: (values: ExistingProjectSaveValues) => void;
+  onSave?: (values: ExistingProjectSaveValues) => void | Promise<boolean | void>;
 };
 
 type FilledProject = {
@@ -85,6 +93,11 @@ export function ExistingProjectDialog({
   const [createOnAts, setCreateOnAts] = useState(false);
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
+  const [engineer, setEngineer] = useState("");
+  const [engineers, setEngineers] = useState<AtsUser[]>([]);
+  const [engineersLoading, setEngineersLoading] = useState(false);
+  const [engineersError, setEngineersError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const comboboxRef = useRef<HTMLDivElement | null>(null);
 
@@ -143,6 +156,9 @@ export function ExistingProjectDialog({
     setUniqueIdError(null);
     setCreateOnBasecamp(false);
     setCreateOnAts(false);
+    setEngineer("");
+    setEngineersError(null);
+    setSaving(false);
     const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
     return () => window.clearTimeout(timer);
   }, [open]);
@@ -212,6 +228,65 @@ export function ExistingProjectDialog({
   }, [open]);
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadEngineers() {
+      setEngineersLoading(true);
+      setEngineersError(null);
+
+      async function fetchUsers() {
+        const response = await fetch("/api/timesheets/users");
+        const data = (await response.json()) as {
+          users?: AtsUser[];
+          error?: string;
+        };
+        return { response, data };
+      }
+
+      try {
+        let { response, data } = await fetchUsers();
+        // One retry — Next.js compile / brief ATS blips often recover.
+        if (!response.ok) {
+          await new Promise((resolve) => setTimeout(resolve, 400));
+          ({ response, data } = await fetchUsers());
+        }
+        if (!cancelled) {
+          setEngineers(data.users ?? []);
+          setEngineersError(
+            response.ok
+              ? null
+              : data.error || "Could not load ATS engineers.",
+          );
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setEngineers([]);
+          const message =
+            error instanceof Error ? error.message : "Could not load ATS engineers.";
+          setEngineersError(
+            /failed to fetch|fetch failed|networkerror/i.test(message)
+              ? "Could not load ATS engineers (network). Close and reopen, or try again."
+              : message,
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setEngineersLoading(false);
+        }
+      }
+    }
+
+    void loadEngineers();
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
     setHighlightIndex(0);
   }, [query]);
 
@@ -242,6 +317,9 @@ export function ExistingProjectDialog({
       no: project.no,
     });
     setSelectedSourceId(project.id);
+    setEngineer(project.engineer?.trim() ?? "");
+    setCreateOnBasecamp(project.basecamp?.trim().toLowerCase() === "yes");
+    setCreateOnAts(project.ats?.trim().toLowerCase() === "yes");
     setQuery(project.fullName || `${project.uniqueId} - ${project.projectName}`);
     setShowSuggestions(false);
   }
@@ -283,9 +361,9 @@ export function ExistingProjectDialog({
     }
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!canSave) {
+    if (!canSave || saving) {
       return;
     }
 
@@ -296,36 +374,50 @@ export function ExistingProjectDialog({
     }
 
     setUniqueIdError(null);
-    onSave?.({
-      projectName: filled.projectName,
-      customer: filled.customer,
-      awardDate: filled.awardDate,
-      year: filled.year,
-      no: filled.no.trim(),
-      uniqueId,
-      fullName,
-      createOnBasecamp,
-      createOnAts,
-    });
-    onClose();
+    setSaving(true);
+    try {
+      const result = await onSave?.({
+        projectName: filled.projectName,
+        customer: filled.customer,
+        awardDate: filled.awardDate,
+        year: filled.year,
+        no: filled.no.trim(),
+        uniqueId,
+        fullName,
+        engineer: engineer.trim() || undefined,
+        createOnBasecamp,
+        createOnAts,
+      });
+      if (result === false) {
+        return;
+      }
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return createPortal(
-    <div
-      className="dialog-backdrop"
-      role="presentation"
-      onClick={onClose}
-    >
+    <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog-panel dialog-panel--wide"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        onClick={(event) => event.stopPropagation()}
       >
-        <h2 id={titleId} className="dialog-title">
-          Existing Project
-        </h2>
+        <div className="dialog-header">
+          <h2 id={titleId} className="dialog-title">
+            Existing Project
+          </h2>
+          <button
+            type="button"
+            className="dialog-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
 
         <form className="dialog-form" onSubmit={handleSubmit}>
           <label className="field">
@@ -341,6 +433,9 @@ export function ExistingProjectDialog({
                   setQuery(event.target.value);
                   setFilled(emptyFilled);
                   setSelectedSourceId(null);
+                  setEngineer("");
+                  setCreateOnBasecamp(false);
+                  setCreateOnAts(false);
                   setShowSuggestions(true);
                 }}
                 onFocus={() => {
@@ -419,11 +514,21 @@ export function ExistingProjectDialog({
           <label className="field">
             <span className="field-label">Award Date</span>
             <input
-              className="field-input field-date field-input--readonly"
+              className="field-input field-date"
               type="date"
+              name="awardDate"
               value={filled.awardDate}
-              readOnly
-              tabIndex={-1}
+              disabled={!selectedSourceId}
+              onChange={(event) => {
+                const dateValue = event.target.value;
+                setFilled((current) => ({
+                  ...current,
+                  awardDate: dateValue,
+                  year: dateValue
+                    ? dateValue.slice(2, 4) || current.year
+                    : current.year,
+                }));
+              }}
             />
           </label>
 
@@ -490,6 +595,40 @@ export function ExistingProjectDialog({
             />
           </label>
 
+          <label className="field">
+            <span className="field-label">Engineer (optional)</span>
+            <select
+              className="field-input field-select"
+              name="engineer"
+              value={engineer}
+              disabled={!selectedSourceId || engineersLoading}
+              onChange={(event) => setEngineer(event.target.value)}
+            >
+              <option value="">
+                {engineersLoading
+                  ? "Loading ATS users…"
+                  : "Select engineer (optional)"}
+              </option>
+              {engineer.trim() &&
+              !engineers.some((user) => user.name === engineer.trim()) ? (
+                <option value={engineer.trim()}>{engineer.trim()}</option>
+              ) : null}
+              {engineers.map((user) => (
+                <option key={user.id} value={user.name}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            {engineersError ? (
+              <span className="field-hint error">{engineersError}</span>
+            ) : (
+              <span className="field-hint">
+                Active users from ATS / Timesheets. Sets Projects → Engineer
+                when saved.
+              </span>
+            )}
+          </label>
+
           <div className="field">
             <label className="checkbox-row">
               <input
@@ -552,15 +691,16 @@ export function ExistingProjectDialog({
               type="button"
               className="button secondary"
               onClick={onClose}
+              disabled={saving}
             >
               Cancel
             </button>
             <button
               type="submit"
               className="button primary"
-              disabled={!canSave}
+              disabled={!canSave || saving}
             >
-              Save as New
+              {saving ? "Saving…" : "Save as New"}
             </button>
           </div>
         </form>

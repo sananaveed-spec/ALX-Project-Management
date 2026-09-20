@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
-  sortCompletedProjectsNewestFirst,
-  type CompletedProjectEntry,
-} from "@/lib/completed-projects";
+  filterInvoicingHistoryRows,
+  partialInvoicesDisplay,
+  type ProjectDetailEntry,
+} from "@/lib/project-details";
 
 const PAGE_SIZE = 50;
 
@@ -12,36 +13,17 @@ const TABLE_HEADERS = [
   "ID",
   "Customer",
   "Project Name",
-  "Date",
-  "Project Engineer",
-  "PROJECT HISTORY",
-  "Partial Invoice Date",
-  "Invoiced Date",
-  "Final Report Sent on",
-  "Project Completed",
-  "Labels Shipped",
+  "Status",
+  "Partial Invoices",
+  "Full Invoice",
 ] as const;
 
 function cell(value: string) {
   return value.trim() ? value : "—";
 }
 
-function formatDateLabel(value: string) {
-  if (!value.trim()) {
-    return "—";
-  }
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const year = String(date.getFullYear()).slice(-2);
-  return `${month}/${day}/${year}`;
-}
-
-export function CompletedProjectsPanel() {
-  const [rows, setRows] = useState<CompletedProjectEntry[]>([]);
+export function InvoicingHistoryPanel() {
+  const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -51,19 +33,17 @@ export function CompletedProjectsPanel() {
 
     async function loadRows() {
       try {
-        const response = await fetch("/api/completed-projects", {
+        const response = await fetch("/api/project-details", {
           cache: "no-store",
         });
         if (!response.ok) {
-          throw new Error("Could not load completed projects.");
+          throw new Error("Could not load invoicing history.");
         }
         const data = (await response.json()) as {
-          completedProjects?: CompletedProjectEntry[];
+          projectDetails?: ProjectDetailEntry[];
         };
         if (!cancelled) {
-          setRows(
-            sortCompletedProjectsNewestFirst(data.completedProjects ?? []),
-          );
+          setRows(filterInvoicingHistoryRows(data.projectDetails ?? []));
           setError(null);
         }
       } catch (loadError) {
@@ -71,7 +51,7 @@ export function CompletedProjectsPanel() {
           setError(
             loadError instanceof Error
               ? loadError.message
-              : "Could not load completed projects.",
+              : "Could not load invoicing history.",
           );
         }
       } finally {
@@ -94,7 +74,6 @@ export function CompletedProjectsPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-
       {error ? (
         <p className="form-message error" role="alert">
           {error}
@@ -102,7 +81,7 @@ export function CompletedProjectsPanel() {
       ) : null}
 
       {!ready ? (
-        <p className="table-empty">Loading completed projects…</p>
+        <p className="table-empty">Loading invoicing history…</p>
       ) : (
         <>
           <div className="table-wrap">
@@ -130,8 +109,8 @@ export function CompletedProjectsPanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No completed projects yet. Mark Project Completed on the
-                      Projects tab.
+                      No PARTIAL or FULL invoices yet. Mark invoiced from Ready
+                      to Invoice or set Invoiced on Projects.
                     </td>
                   </tr>
                 ) : (
@@ -146,18 +125,17 @@ export function CompletedProjectsPanel() {
                       <td className="col-sticky col-sticky-3">
                         {cell(row.projectName)}
                       </td>
-                      <td>{formatDateLabel(row.date)}</td>
-                      <td>{cell(row.engineer)}</td>
+                      <td>{cell(row.invoiced)}</td>
                       <td>
                         <span className="table-preview-text">
-                          {cell(row.projectHistory)}
+                          {cell(partialInvoicesDisplay(row))}
                         </span>
                       </td>
-                      <td>{cell(row.partialInvoiceDate)}</td>
-                      <td>{cell(row.invoicedDate)}</td>
-                      <td>{cell(row.finalReportSentOn)}</td>
-                      <td>{formatDateLabel(row.projectCompleted)}</td>
-                      <td>{cell(row.labelsShipped)}</td>
+                      <td>
+                        <span className="table-preview-text">
+                          {cell(row.fullInvoicedDate)}
+                        </span>
+                      </td>
                     </tr>
                   ))
                 )}

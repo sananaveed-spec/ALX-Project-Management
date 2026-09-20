@@ -228,7 +228,6 @@ export function CustomerNamePanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <h2 className="section-title">Customer Name</h2>
       <div className="action-row">
         <button
           type="button"
