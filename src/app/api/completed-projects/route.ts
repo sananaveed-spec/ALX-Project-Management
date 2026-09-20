@@ -80,7 +80,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = (await request.json()) as {
-      completedProjects?: CompletedProjectEntry[];
+      completedProjects?: unknown;
     };
     if (!Array.isArray(body.completedProjects)) {
       return NextResponse.json(
@@ -95,7 +95,7 @@ export async function PUT(request: Request) {
           (item): item is Partial<CompletedProjectEntry> & { id: string } =>
             typeof item === "object" &&
             item !== null &&
-            typeof item.id === "string",
+            typeof (item as { id?: unknown }).id === "string",
         )
         .map(normalizeCompletedProject),
     );
