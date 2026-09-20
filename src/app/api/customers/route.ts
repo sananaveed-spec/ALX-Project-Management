@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = (await request.json()) as { customers?: CustomerEntry[] };
+    const body = (await request.json()) as { customers?: unknown };
     if (!Array.isArray(body.customers)) {
       return NextResponse.json(
         { error: "Expected { customers: CustomerEntry[] }." },
@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
         (item): item is Partial<CustomerEntry> & { id: string } =>
           typeof item === "object" &&
           item !== null &&
-          typeof item.id === "string",
+          typeof (item as { id?: unknown }).id === "string",
       )
       .map(normalizeCustomer);
 

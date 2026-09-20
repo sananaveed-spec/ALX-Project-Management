@@ -17,7 +17,7 @@ export async function GET() {
 
 export async function PUT(request: Request) {
   try {
-    const body = (await request.json()) as { projects?: ProjectEntry[] };
+    const body = (await request.json()) as { projects?: unknown };
     if (!Array.isArray(body.projects)) {
       return NextResponse.json(
         { error: "Expected { projects: ProjectEntry[] }." },
@@ -30,7 +30,7 @@ export async function PUT(request: Request) {
         (item): item is Partial<ProjectEntry> & { id: string } =>
           typeof item === "object" &&
           item !== null &&
-          typeof item.id === "string",
+          typeof (item as { id?: unknown }).id === "string",
       )
       .map(normalizeProject);
 

@@ -68,7 +68,8 @@ export function TodayToDoPanel() {
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
   const titleId = useId();
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
+  const dateInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -121,7 +122,11 @@ export function TodayToDoPanel() {
       return;
     }
     const timer = window.setTimeout(() => {
-      inputRef.current?.focus();
+      if (wizard.kind === "reschedule-date") {
+        dateInputRef.current?.focus();
+      } else {
+        textAreaRef.current?.focus();
+      }
     }, 0);
     return () => window.clearTimeout(timer);
   }, [wizard]);
@@ -406,7 +411,7 @@ export function TodayToDoPanel() {
                     <label className="field">
                       <span className="field-label">Please enter actions taken</span>
                       <textarea
-                        ref={inputRef}
+                        ref={textAreaRef}
                         className="field-input notes-editor"
                         rows={6}
                         value={wizard.comments}
@@ -447,7 +452,7 @@ export function TodayToDoPanel() {
                         Enter the date (new reminder date)
                       </span>
                       <input
-                        ref={inputRef}
+                        ref={dateInputRef}
                         className="field-input field-date"
                         type="date"
                         value={wizard.newDate}
@@ -497,7 +502,7 @@ export function TodayToDoPanel() {
                     <label className="field">
                       <span className="field-label">Please provide actions taken</span>
                       <textarea
-                        ref={inputRef}
+                        ref={textAreaRef}
                         className="field-input notes-editor"
                         rows={6}
                         value={wizard.comments}
