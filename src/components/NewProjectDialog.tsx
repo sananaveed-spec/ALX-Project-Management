@@ -514,6 +514,10 @@ export function NewProjectDialog({
       setUniqueIdError(conflict);
       return;
     }
+    if (!values.projectName.trim()) {
+      setUniqueIdError("Project Name is required.");
+      return;
+    }
     if (!values.customer.trim()) {
       setCustomersError("Select a customer from the list.");
       return;
@@ -564,7 +568,9 @@ export function NewProjectDialog({
 
         <form className="dialog-form" onSubmit={handleSubmit}>
           <label className="field">
-            <span className="field-label">Project Name</span>
+            <span className="field-label">
+              Project Name <span className="field-required" aria-hidden="true">*</span>
+            </span>
             <input
               className="field-input"
               type="text"
@@ -574,12 +580,15 @@ export function NewProjectDialog({
                 updateField("projectName", event.target.value)
               }
               required
+              aria-required="true"
               autoFocus
             />
           </label>
 
           <label className="field">
-            <span className="field-label">Customer</span>
+            <span className="field-label">
+              Customer <span className="field-required" aria-hidden="true">*</span>
+            </span>
             <div className="search-combobox" ref={customerComboboxRef}>
               <input
                 className="field-input"
@@ -592,6 +601,8 @@ export function NewProjectDialog({
                     : "Search client name or code, or scroll the list"
                 }
                 disabled={customersLoading || customers.length === 0}
+                required
+                aria-required="true"
                 onChange={(event) => {
                   setCustomerQuery(event.target.value);
                   updateField("customer", "");

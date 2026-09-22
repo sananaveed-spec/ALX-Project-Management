@@ -123,6 +123,63 @@ export function getMaxUsedNoForCustomerYear(
   };
 }
 
+/**
+ * Next point-version No for Existing Project.
+ * Examples: 001 → 001.1; 001.1 → 001.2 (uses highest .N for that base No).
+ */
+export function getNextPointNo(
+  projects: ProjectEntry[],
+  source: ProjectEntry,
+): string | null {
+  const customerPart = source.customer.trim();
+  const yearPart = yearPartForUniqueId(source.year);
+  if (!customerPart || !yearPart) {
+    return null;
+  }
+
+  let baseNo: number | null = null;
+  const fromNo = parseUniqueIdNoSuffix(source.no.trim());
+  if (fromNo) {
+    baseNo = fromNo.baseNo;
+  } else {
+    const prefix = `${customerPart}${yearPart}`;
+    const uniqueId = source.uniqueId.trim();
+    if (uniqueId.toLowerCase().startsWith(prefix.toLowerCase())) {
+      const parsed = parseUniqueIdNoSuffix(uniqueId.slice(prefix.length));
+      if (parsed) {
+        baseNo = parsed.baseNo;
+      }
+    }
+  }
+
+  if (baseNo === null) {
+    return null;
+  }
+
+  const prefix = `${customerPart}${yearPart}`.toLowerCase();
+  let maxPoint = -1;
+
+  for (const project of projects) {
+    const uniqueId = project.uniqueId.trim();
+    if (!uniqueId.toLowerCase().startsWith(prefix)) {
+      continue;
+    }
+    const suffix = uniqueId.slice(customerPart.length + yearPart.length);
+    const parsed = parseUniqueIdNoSuffix(suffix);
+    if (!parsed || parsed.baseNo !== baseNo) {
+      continue;
+    }
+    const pointRank = parsed.point === null ? -1 : parsed.point;
+    if (pointRank > maxPoint) {
+      maxPoint = pointRank;
+    }
+  }
+
+  const nextPoint = maxPoint < 0 ? 1 : maxPoint + 1;
+  const baseLabel = String(baseNo).padStart(3, "0");
+  return `${baseLabel}.${nextPoint}`;
+}
+
 /** Full Name = UniqueID - Project Name (e.g. ESR19001 - Site Upgrade). */
 export function buildFullName(uniqueId: string, projectName: string) {
   const id = uniqueId.trim();

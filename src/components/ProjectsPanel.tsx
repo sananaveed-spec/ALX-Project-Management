@@ -139,6 +139,18 @@ type PmCommentsPromptState = {
   draft: string;
 };
 
+type StatusPmActionPromptState = {
+  rowId: string;
+  projectLabel: string;
+  previousStatus: string;
+  nextStatus: string;
+  pmActionItems: string;
+  pmActionItemsDate: string;
+  /** Shown for k.Preliminary Report Sent — drives reminder date. */
+  followUpDays: string;
+  showFollowUpDays: boolean;
+};
+
 function cell(value: string) {
   return value.trim() ? value : "—";
 }
@@ -179,6 +191,18 @@ function appendStatusRevision(existing: string, status: string) {
   return current ? `${current}\n${entry}` : entry;
 }
 
+function isPreliminaryReportSentStatus(status: string) {
+  return /^k\.Preliminary Report Sent$/i.test(
+    status.trim().replace(/\s+/g, " "),
+  );
+}
+
+function addDaysIso(days: number, from = new Date()) {
+  const date = new Date(from);
+  date.setDate(date.getDate() + days);
+  return todayIsoInLosAngeles(date);
+}
+
 export function ProjectsPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
   const [ready, setReady] = useState(false);
@@ -197,13 +221,17 @@ export function ProjectsPanel() {
   const [sortingByStatus, setSortingByStatus] = useState(false);
   const [pmCommentsPrompt, setPmCommentsPrompt] =
     useState<PmCommentsPromptState | null>(null);
+  const [statusPmPrompt, setStatusPmPrompt] =
+    useState<StatusPmActionPromptState | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
   const editorTitleId = useId();
   const completeTitleId = useId();
   const pmCommentsTitleId = useId();
+  const statusPmTitleId = useId();
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pmCommentsTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const statusPmTextareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -313,10 +341,48 @@ export function ProjectsPanel() {
     return () => window.clearTimeout(timer);
   }, [pmCommentsPrompt?.rowId]);
 
+  useEffect(() => {
+    if (!statusPmPrompt) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      statusPmTextareaRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [statusPmPrompt?.rowId, statusPmPrompt?.nextStatus]);
+
+  function openStatusPmActionPrompt(row: ProjectDetailEntry, nextStatus: string) {
+    const reminder = reminderFieldsForStatus(nextStatus);
+    const showFollowUpDays = isPreliminaryReportSentStatus(nextStatus);
+    const followUpDays = "14";
+    const pmActionItems =
+      reminder?.pmActionItems ?? row.pmActionItems.trim() ?? "";
+    const pmActionItemsDate = showFollowUpDays
+      ? addDaysIso(14)
+      : reminder?.pmActionItemsDate ||
+        row.pmActionItemsDate.trim().slice(0, 10) ||
+        todayIsoInLosAngeles();
+
+    setStatusPmPrompt({
+      rowId: row.id,
+      projectLabel: row.displayId || row.projectName || "Project",
+      previousStatus: row.status,
+      nextStatus,
+      pmActionItems,
+      pmActionItemsDate,
+      followUpDays,
+      showFollowUpDays,
+    });
+  }
+
   async function handleFieldChange(
     rowId: string,
     field: EditableField,
     value: string,
+    extras?: {
+      pmActionItems?: string;
+      pmActionItemsDate?: string;
+    },
   ) {
     const previous = persistedRowsRef.current;
     const previousRow =
@@ -351,14 +417,25 @@ export function ProjectsPanel() {
             nextRow.finalSccsSent = todayIsoInLosAngeles();
             patch = { ...patch, finalSccsSent: nextRow.finalSccsSent };
           }
-          const reminder = reminderFieldsForStatus(nextStatus);
-          if (reminder) {
-            nextRow.pmActionItems = reminder.pmActionItems;
-            nextRow.pmActionItemsDate = reminder.pmActionItemsDate;
+
+          const pmActionItems =
+            extras?.pmActionItems !== undefined
+              ? extras.pmActionItems
+              : reminderFieldsForStatus(nextStatus)?.pmActionItems;
+          const pmActionItemsDate =
+            extras?.pmActionItemsDate !== undefined
+              ? extras.pmActionItemsDate
+              : reminderFieldsForStatus(nextStatus)?.pmActionItemsDate;
+
+          if (pmActionItems !== undefined) {
+            nextRow.pmActionItems = pmActionItems;
+            patch = { ...patch, pmActionItems: nextRow.pmActionItems };
+          }
+          if (pmActionItemsDate !== undefined) {
+            nextRow.pmActionItemsDate = pmActionItemsDate;
             patch = {
               ...patch,
-              pmActionItems: reminder.pmActionItems,
-              pmActionItemsDate: reminder.pmActionItemsDate,
+              pmActionItemsDate: nextRow.pmActionItemsDate,
             };
           }
         }
@@ -438,6 +515,24 @@ export function ProjectsPanel() {
       return false;
     } finally {
       setSavingKey(null);
+    }
+  }
+
+  async function saveStatusPmActionPrompt() {
+    if (!statusPmPrompt) {
+      return;
+    }
+    const ok = await handleFieldChange(
+      statusPmPrompt.rowId,
+      "status",
+      statusPmPrompt.nextStatus,
+      {
+        pmActionItems: statusPmPrompt.pmActionItems,
+        pmActionItemsDate: statusPmPrompt.pmActionItemsDate.slice(0, 10),
+      },
+    );
+    if (ok) {
+      setStatusPmPrompt(null);
     }
   }
 
@@ -842,13 +937,17 @@ export function ProjectsPanel() {
                             savingKey === savingKeyFor(row.id, "status")
                           }
                           aria-label={`Status for ${row.projectName || row.displayId}`}
-                          onChange={(event) =>
-                            void handleFieldChange(
-                              row.id,
-                              "status",
-                              event.target.value,
-                            )
-                          }
+                          onChange={(event) => {
+                            const nextStatus = event.target.value;
+                            if (nextStatus === row.status) {
+                              return;
+                            }
+                            if (!nextStatus.trim()) {
+                              void handleFieldChange(row.id, "status", "");
+                              return;
+                            }
+                            openStatusPmActionPrompt(row, nextStatus);
+                          }}
                         >
                           <option value="">Select status</option>
                           {statusOptions.map((status) => (
@@ -1241,6 +1340,135 @@ export function ProjectsPanel() {
                     onClick={() => void savePmCommentsPrompt()}
                   >
                     Save
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && statusPmPrompt
+        ? createPortal(
+            <div className="dialog-backdrop" role="presentation">
+              <div
+                className="dialog-panel dialog-panel--notes"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={statusPmTitleId}
+              >
+                <div className="dialog-header">
+                  <h2 id={statusPmTitleId} className="dialog-title">
+                    PM Action Items
+                  </h2>
+                  <button
+                    type="button"
+                    className="dialog-close"
+                    aria-label="Close"
+                    onClick={() => setStatusPmPrompt(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="dialog-subtitle">
+                  {statusPmPrompt.projectLabel}
+                </p>
+                <p className="form-message">
+                  Status will change to{" "}
+                  <strong>{statusPmPrompt.nextStatus}</strong>. Enter PM Action
+                  Items, then Save to apply.
+                </p>
+                <label className="field">
+                  <span className="field-label">PM Action Items</span>
+                  <textarea
+                    ref={statusPmTextareaRef}
+                    className="field-input notes-editor"
+                    value={statusPmPrompt.pmActionItems}
+                    rows={6}
+                    placeholder="PM Action Items…"
+                    onChange={(event) =>
+                      setStatusPmPrompt((current) =>
+                        current
+                          ? {
+                              ...current,
+                              pmActionItems: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                {statusPmPrompt.showFollowUpDays ? (
+                  <label className="field">
+                    <span className="field-label">Follow-up days</span>
+                    <input
+                      className="field-input"
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={statusPmPrompt.followUpDays}
+                      onChange={(event) => {
+                        const followUpDays = event.target.value;
+                        const parsed = Number.parseInt(followUpDays, 10);
+                        const days = Number.isFinite(parsed)
+                          ? Math.max(0, parsed)
+                          : 14;
+                        setStatusPmPrompt((current) =>
+                          current
+                            ? {
+                                ...current,
+                                followUpDays,
+                                pmActionItemsDate: addDaysIso(days),
+                              }
+                            : current,
+                        );
+                      }}
+                    />
+                    <span className="field-hint">
+                      Sets PM Action Items Date to today + days (default 14 for
+                      Preliminary Report Sent).
+                    </span>
+                  </label>
+                ) : null}
+                <label className="field">
+                  <span className="field-label">PM Action Items Date</span>
+                  <input
+                    className="field-input field-date"
+                    type="date"
+                    value={statusPmPrompt.pmActionItemsDate.slice(0, 10)}
+                    onChange={(event) =>
+                      setStatusPmPrompt((current) =>
+                        current
+                          ? {
+                              ...current,
+                              pmActionItemsDate: event.target.value,
+                            }
+                          : current,
+                      )
+                    }
+                  />
+                </label>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => setStatusPmPrompt(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={
+                      savingKey ===
+                      savingKeyFor(statusPmPrompt.rowId, "status")
+                    }
+                    onClick={() => void saveStatusPmActionPrompt()}
+                  >
+                    {savingKey ===
+                    savingKeyFor(statusPmPrompt.rowId, "status")
+                      ? "Saving…"
+                      : "Save"}
                   </button>
                 </div>
               </div>

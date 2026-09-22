@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   NewCustomerDialog,
   type NewCustomerFormValues,
@@ -8,8 +8,74 @@ import {
 import type { CustomerEntry } from "@/lib/customers";
 
 type TableView = "new" | "all";
+type CustomerSort = "name" | "id" | "newest";
 
 const PAGE_SIZE = 50;
+
+function customerCreatedAt(id: string) {
+  const stamp = Number.parseInt(id.split("-")[0] ?? "", 10);
+  return Number.isFinite(stamp) ? stamp : 0;
+}
+
+function matchesCustomerQuery(customer: CustomerEntry, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  const haystack = [
+    customer.customerId,
+    customer.customerName,
+    customer.email,
+    customer.pocName,
+    customer.pocEmail,
+    customer.billToAddress,
+    customer.apNumber,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
+function sortCustomers(rows: CustomerEntry[], sort: CustomerSort) {
+  const next = [...rows];
+  if (sort === "newest") {
+    return next.sort(
+      (a, b) => customerCreatedAt(b.id) - customerCreatedAt(a.id),
+    );
+  }
+  if (sort === "id") {
+    return next.sort((a, b) => {
+      const byId = a.customerId
+        .trim()
+        .localeCompare(b.customerId.trim(), undefined, {
+          sensitivity: "base",
+        });
+      if (byId !== 0) {
+        return byId;
+      }
+      return a.customerName
+        .trim()
+        .localeCompare(b.customerName.trim(), undefined, {
+          sensitivity: "base",
+        });
+    });
+  }
+  return next.sort((a, b) => {
+    const byName = a.customerName
+      .trim()
+      .localeCompare(b.customerName.trim(), undefined, {
+        sensitivity: "base",
+      });
+    if (byName !== 0) {
+      return byName;
+    }
+    return a.customerId
+      .trim()
+      .localeCompare(b.customerId.trim(), undefined, {
+        sensitivity: "base",
+      });
+  });
+}
 
 async function persistCustomers(customers: CustomerEntry[]) {
   const response = await fetch("/api/customers", {
@@ -37,6 +103,9 @@ export function CustomerNamePanel() {
     null,
   );
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<CustomerSort>("name");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -185,6 +254,19 @@ export function CustomerNamePanel() {
     setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
   }
 
+  const sortedVisibleCustomers = useMemo(() => {
+    const base =
+      tableView === "all"
+        ? customers
+        : tableView === "new" && latestCustomerId
+          ? customers.filter((customer) => customer.id === latestCustomerId)
+          : [];
+    const filtered = base.filter((customer) =>
+      matchesCustomerQuery(customer, query),
+    );
+    return sortCustomers(filtered, sort);
+  }, [customers, tableView, latestCustomerId, query, sort]);
+
   const visibleCustomers =
     tableView === "all"
       ? customers
@@ -192,24 +274,9 @@ export function CustomerNamePanel() {
         ? customers.filter((customer) => customer.id === latestCustomerId)
         : [];
 
-  const sortedVisibleCustomers =
-    tableView === "all"
-      ? [...visibleCustomers].sort((a, b) => {
-          const byName = a.customerName
-            .trim()
-            .localeCompare(b.customerName.trim(), undefined, {
-              sensitivity: "base",
-            });
-          if (byName !== 0) {
-            return byName;
-          }
-          return a.customerId
-            .trim()
-            .localeCompare(b.customerId.trim(), undefined, {
-              sensitivity: "base",
-            });
-        })
-      : visibleCustomers;
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort, tableView]);
 
   const totalPages = Math.max(
     1,
@@ -245,12 +312,56 @@ export function CustomerNamePanel() {
         <button
           type="button"
           className="action-button"
+          onClick={() => {
+            setTableView("all");
+            setSelectedIds([]);
+            setMenuOpenId(null);
+            setPage(1);
+            window.setTimeout(() => searchInputRef.current?.focus(), 0);
+          }}
+          disabled={!ready}
+        >
+          Search
+        </button>
+        <button
+          type="button"
+          className="action-button"
           onClick={() => setIsNewCustomerOpen(true)}
           disabled={!ready}
         >
           New Customer
         </button>
       </div>
+
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              ref={searchInputRef}
+              className="field-input"
+              type="search"
+              placeholder="ID, name, AP email, POC, address…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) =>
+                setSort(event.target.value as CustomerSort)
+              }
+            >
+              <option value="name">Alphabetically — Name</option>
+              <option value="id">Alphabetically — ID</option>
+              <option value="newest">Newest First</option>
+            </select>
+          </label>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="form-message error" role="alert">
@@ -288,7 +399,7 @@ export function CustomerNamePanel() {
                   </th>
                   <th>Customer ID</th>
                   <th>Customer Name</th>
-                  <th>Email</th>
+                  <th>AP Email</th>
                   <th>POC Name</th>
                   <th>POC Email</th>
                   <th>Bill To Address</th>
@@ -297,66 +408,76 @@ export function CustomerNamePanel() {
                 </tr>
               </thead>
               <tbody>
-                {pageCustomers.map((customer) => {
-                  const isSelected = selectedIds.includes(customer.id);
-                  const isMenuOpen = menuOpenId === customer.id;
+                {pageCustomers.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="table-empty-cell">
+                      {query.trim()
+                        ? "No customers match this search."
+                        : "No customers to show."}
+                    </td>
+                  </tr>
+                ) : (
+                  pageCustomers.map((customer) => {
+                    const isSelected = selectedIds.includes(customer.id);
+                    const isMenuOpen = menuOpenId === customer.id;
 
-                  return (
-                    <tr
-                      key={customer.id}
-                      className={isSelected ? "row-selected" : undefined}
-                    >
-                      <td className="col-check">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleSelect(customer.id)}
-                          aria-label={`Select ${customer.customerName || customer.customerId}`}
-                        />
-                      </td>
-                      <td>{customer.customerId}</td>
-                      <td>{customer.customerName}</td>
-                      <td>{customer.email}</td>
-                      <td>{customer.pocName}</td>
-                      <td>{customer.pocEmail}</td>
-                      <td>{customer.billToAddress}</td>
-                      <td>{customer.apNumber}</td>
-                      <td className="col-actions">
-                        <div
-                          className="row-menu"
-                          ref={isMenuOpen ? menuRef : null}
-                        >
-                          <button
-                            type="button"
-                            className="row-menu-trigger"
-                            aria-label={`Actions for ${customer.customerName || customer.customerId}`}
-                            aria-haspopup="menu"
-                            aria-expanded={isMenuOpen}
-                            onClick={() =>
-                              setMenuOpenId(isMenuOpen ? null : customer.id)
-                            }
+                    return (
+                      <tr
+                        key={customer.id}
+                        className={isSelected ? "row-selected" : undefined}
+                      >
+                        <td className="col-check">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(customer.id)}
+                            aria-label={`Select ${customer.customerName || customer.customerId}`}
+                          />
+                        </td>
+                        <td>{customer.customerId}</td>
+                        <td>{customer.customerName}</td>
+                        <td>{customer.email}</td>
+                        <td>{customer.pocName}</td>
+                        <td>{customer.pocEmail}</td>
+                        <td>{customer.billToAddress}</td>
+                        <td>{customer.apNumber}</td>
+                        <td className="col-actions">
+                          <div
+                            className="row-menu"
+                            ref={isMenuOpen ? menuRef : null}
                           >
-                            ⋯
-                          </button>
-                          {isMenuOpen ? (
-                            <div className="row-menu-dropdown" role="menu">
-                              <button
-                                type="button"
-                                role="menuitem"
-                                onClick={() => {
-                                  setEditingCustomer(customer);
-                                  setMenuOpenId(null);
-                                }}
-                              >
-                                Edit
-                              </button>
-                            </div>
-                          ) : null}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            <button
+                              type="button"
+                              className="row-menu-trigger"
+                              aria-label={`Actions for ${customer.customerName || customer.customerId}`}
+                              aria-haspopup="menu"
+                              aria-expanded={isMenuOpen}
+                              onClick={() =>
+                                setMenuOpenId(isMenuOpen ? null : customer.id)
+                              }
+                            >
+                              ⋯
+                            </button>
+                            {isMenuOpen ? (
+                              <div className="row-menu-dropdown" role="menu">
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  onClick={() => {
+                                    setEditingCustomer(customer);
+                                    setMenuOpenId(null);
+                                  }}
+                                >
+                                  Edit
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
               </tbody>
             </table>
           </div>

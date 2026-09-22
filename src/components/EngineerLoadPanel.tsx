@@ -6,6 +6,7 @@ import {
   type EngineerLoadColumn,
 } from "@/lib/engineer-load";
 import { type ProjectDetailEntry } from "@/lib/project-details";
+import { type ProjectEntry } from "@/lib/projects";
 
 function cell(value: string) {
   return value.trim() ? value : "—";
@@ -13,6 +14,7 @@ function cell(value: string) {
 
 export function EngineerLoadPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
+  const [namingProjects, setNamingProjects] = useState<ProjectEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,17 +23,25 @@ export function EngineerLoadPanel() {
 
     async function load() {
       try {
-        const response = await fetch("/api/project-details", {
-          cache: "no-store",
-        });
-        if (!response.ok) {
+        const [detailsResponse, namingResponse] = await Promise.all([
+          fetch("/api/project-details", { cache: "no-store" }),
+          fetch("/api/projects", { cache: "no-store" }),
+        ]);
+        if (!detailsResponse.ok) {
           throw new Error("Could not load projects for engineer load.");
         }
-        const data = (await response.json()) as {
+        if (!namingResponse.ok) {
+          throw new Error("Could not load project naming for engineer load.");
+        }
+        const detailsData = (await detailsResponse.json()) as {
           projectDetails?: ProjectDetailEntry[];
         };
+        const namingData = (await namingResponse.json()) as {
+          projects?: ProjectEntry[];
+        };
         if (!cancelled) {
-          setRows(data.projectDetails ?? []);
+          setRows(detailsData.projectDetails ?? []);
+          setNamingProjects(namingData.projects ?? []);
           setError(null);
         }
       } catch (loadError) {
@@ -55,7 +65,10 @@ export function EngineerLoadPanel() {
     };
   }, []);
 
-  const columns = useMemo(() => buildEngineerLoadColumns(rows), [rows]);
+  const columns = useMemo(
+    () => buildEngineerLoadColumns(rows, namingProjects),
+    [rows, namingProjects],
+  );
 
   return (
     <section className="content-panel content-panel--actions content-panel--engineer-load">
@@ -131,7 +144,7 @@ function EngineerColumnCard({
                   <td>
                     <span
                       className="table-preview-text"
-                      title={project.displayId || project.projectName}
+                      title={project.projectName}
                     >
                       {cell(project.projectName)}
                     </span>

@@ -134,7 +134,7 @@ export function NewCustomerDialog({
           </label>
 
           <label className="field">
-            <span className="field-label">Email</span>
+            <span className="field-label">AP Email</span>
             <input
               className="field-input"
               type="text"

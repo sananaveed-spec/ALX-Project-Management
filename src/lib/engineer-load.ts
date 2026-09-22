@@ -1,4 +1,5 @@
 import type { ProjectDetailEntry } from "@/lib/project-details";
+import { buildFullName, type ProjectEntry } from "@/lib/projects";
 
 /** One project cell under an engineer on ENGINEER LOAD. */
 export type EngineerLoadProject = {
@@ -15,13 +16,45 @@ export type EngineerLoadColumn = {
   projects: EngineerLoadProject[];
 };
 
+function resolveFullName(
+  row: ProjectDetailEntry,
+  namingById: Map<string, ProjectEntry>,
+  namingByUniqueId: Map<string, ProjectEntry>,
+): string {
+  const fromNaming =
+    (row.namingProjectId
+      ? namingById.get(row.namingProjectId)
+      : undefined) ??
+    namingByUniqueId.get(row.displayId.trim().toLowerCase());
+
+  const fullName =
+    fromNaming?.fullName.trim() ||
+    buildFullName(row.displayId, row.projectName) ||
+    row.displayId.trim() ||
+    row.projectName.trim();
+
+  return fullName || "—";
+}
+
 /**
  * Excel ENGINEER LOAD: one column group per engineer
  * (Project Name | Stage | PRIORITY), filled from active PROJECTS.
+ * Project Name shows Project Naming Full Name when available.
  */
 export function buildEngineerLoadColumns(
   rows: ProjectDetailEntry[],
+  namingProjects: ProjectEntry[] = [],
 ): EngineerLoadColumn[] {
+  const namingById = new Map(
+    namingProjects.map((project) => [project.id, project] as const),
+  );
+  const namingByUniqueId = new Map(
+    namingProjects.map(
+      (project) =>
+        [project.uniqueId.trim().toLowerCase(), project] as const,
+    ),
+  );
+
   const byEngineer = new Map<string, EngineerLoadProject[]>();
 
   for (const row of rows) {
@@ -29,7 +62,7 @@ export function buildEngineerLoadColumns(
     const entry: EngineerLoadProject = {
       id: row.id,
       displayId: row.displayId,
-      projectName: row.projectName.trim() || row.displayId || "—",
+      projectName: resolveFullName(row, namingById, namingByUniqueId),
       stage: formatStageLabel(row.status),
       priority: row.priority.trim(),
     };

@@ -101,6 +101,8 @@ export function ProjectNamingPanel() {
   const [groupBy, setGroupBy] = useState<"none" | "client" | "projectName">(
     "none",
   );
+  /** Group keys (client / project name labels) that are expanded to show child rows. */
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -540,18 +542,25 @@ export function ProjectNamingPanel() {
         ? projects.filter((project) => project.id === latestProjectId)
         : [];
 
-  const totalPages = Math.max(1, Math.ceil(visibleProjects.length / PAGE_SIZE));
+  const isGrouped = tableView === "all" && groupBy !== "none";
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(visibleProjects.length / PAGE_SIZE),
+  );
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageProjects = visibleProjects.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageProjects = isGrouped
+    ? visibleProjects
+    : visibleProjects.slice(pageStart, pageStart + PAGE_SIZE);
 
   const groupedVisibleProjects = (() => {
-    if (tableView !== "all" || groupBy === "none") {
+    if (!isGrouped) {
       return null;
     }
 
     const groups: { label: string; projects: ProjectEntry[] }[] = [];
-    for (const project of pageProjects) {
+    for (const project of visibleProjects) {
       const label =
         groupBy === "client"
           ? project.customer.trim() || "Unknown"
@@ -568,6 +577,14 @@ export function ProjectNamingPanel() {
     );
     return groups;
   })();
+
+  function toggleGroupExpanded(label: string) {
+    setExpandedGroups((current) =>
+      current.includes(label)
+        ? current.filter((item) => item !== label)
+        : [...current, label],
+    );
+  }
 
   const allVisibleSelected =
     pageProjects.length > 0 &&
@@ -628,6 +645,7 @@ export function ProjectNamingPanel() {
                     setGroupBy(
                       event.target.value as "none" | "client" | "projectName",
                     );
+                    setExpandedGroups([]);
                     setPage(1);
                   }}
                 >
@@ -677,18 +695,38 @@ export function ProjectNamingPanel() {
               </thead>
               <tbody>
                 {groupedVisibleProjects
-                  ? groupedVisibleProjects.map((group) => (
+                  ? groupedVisibleProjects.map((group) => {
+                      const isExpanded = expandedGroups.includes(group.label);
+                      return (
                       <Fragment key={`group-${groupBy}-${group.label}`}>
                         <tr className="group-row">
                           <td colSpan={NAMING_TABLE_COL_COUNT}>
-                            <span className="group-row-label">
-                              {groupBy === "client"
-                                ? `Client: ${group.label}`
-                                : `Project Name: ${group.label}`}
-                            </span>
+                            <button
+                              type="button"
+                              className="group-row-toggle"
+                              aria-expanded={isExpanded}
+                              onClick={() => toggleGroupExpanded(group.label)}
+                            >
+                              <span
+                                className="group-row-chevron"
+                                aria-hidden="true"
+                              >
+                                {isExpanded ? "▾" : "▸"}
+                              </span>
+                              <span className="group-row-label">
+                                {groupBy === "client"
+                                  ? `Client: ${group.label}`
+                                  : `Project Name: ${group.label}`}
+                                <span className="group-row-count">
+                                  {" "}
+                                  ({group.projects.length})
+                                </span>
+                              </span>
+                            </button>
                           </td>
                         </tr>
-                        {group.projects.map((project) => {
+                        {isExpanded
+                          ? group.projects.map((project) => {
                           const isSelected = selectedIds.includes(project.id);
                           const isMenuOpen = menuOpenId === project.id;
 
@@ -757,9 +795,11 @@ export function ProjectNamingPanel() {
                               </td>
                             </tr>
                           );
-                        })}
+                        })
+                          : null}
                       </Fragment>
-                    ))
+                      );
+                    })
                   : pageProjects.map((project) => {
                       const isSelected = selectedIds.includes(project.id);
                       const isMenuOpen = menuOpenId === project.id;
@@ -830,7 +870,7 @@ export function ProjectNamingPanel() {
             </table>
           </div>
 
-          {visibleProjects.length > PAGE_SIZE ? (
+          {!isGrouped && visibleProjects.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"

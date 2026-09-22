@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { buildFullName, buildUniqueId, getUniqueIdConflict, type ProjectEntry } from "@/lib/projects";
+import { buildFullName, buildUniqueId, getNextPointNo, getUniqueIdConflict, type ProjectEntry } from "@/lib/projects";
 
 export type ExistingProjectSaveValues = {
   projectName: string;
@@ -309,12 +309,13 @@ export function ExistingProjectDialog({
   }
 
   function fillFromProject(project: ProjectEntry) {
+    const nextNo = getNextPointNo(projects, project) ?? project.no;
     setFilled({
       projectName: project.projectName,
       customer: project.customer,
       awardDate: project.awardDate,
       year: project.year,
-      no: project.no,
+      no: nextNo,
     });
     setSelectedSourceId(project.id);
     setEngineer(project.engineer?.trim() ?? "");
@@ -322,6 +323,7 @@ export function ExistingProjectDialog({
     setCreateOnAts(project.ats?.trim().toLowerCase() === "yes");
     setQuery(project.fullName || `${project.uniqueId} - ${project.projectName}`);
     setShowSuggestions(false);
+    setUniqueIdError(null);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -563,7 +565,8 @@ export function ExistingProjectDialog({
             />
             {selectedSourceId ? (
               <span className="field-hint">
-                Edit No to create a new version. UniqueID updates automatically.
+                Auto-filled next point version (001 → 001.1 → 001.2). You can
+                edit No; UniqueID updates automatically.
               </span>
             ) : null}
           </label>
