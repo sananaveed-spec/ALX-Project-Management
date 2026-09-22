@@ -97,6 +97,33 @@ export async function listActiveTimesheetsUsers(): Promise<TimesheetsUser[]> {
     );
 }
 
+async function listTimesheetsProjectsPage(page: number, archived: boolean) {
+  const { apiToken } = getTimesheetsConfig();
+  const url = new URL(orgProjectsUrl());
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("archived", archived ? "true" : "false");
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${apiToken}`,
+      Accept: "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`ATS list projects failed (${response.status}): ${text}`);
+  }
+
+  return (await response.json()) as {
+    data?: Array<{ id?: string; name?: string | null }>;
+    meta?: { current_page?: number; last_page?: number };
+  };
+}
+
+/** Walk all ATS project pages (active + archived) for an exact name match. */
 export async function findTimesheetsProjectByName(name: string): Promise<{
   id: string;
   name: string;
@@ -112,37 +139,26 @@ export async function findTimesheetsProjectByName(name: string): Promise<{
     return null;
   }
 
-  const { apiToken } = getTimesheetsConfig();
-  const response = await fetch(orgProjectsUrl(), {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      Accept: "application/json",
-    },
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`ATS list projects failed (${response.status}): ${text}`);
+  for (const archived of [false, true]) {
+    let page = 1;
+    let lastPage = 1;
+    while (page <= lastPage) {
+      const json = await listTimesheetsProjectsPage(page, archived);
+      const match = (json.data ?? []).find(
+        (project) => project.name?.trim().toLowerCase() === target,
+      );
+      if (match?.id) {
+        return {
+          id: match.id,
+          name: match.name?.trim() || name.trim(),
+        };
+      }
+      lastPage = Math.max(1, json.meta?.last_page ?? page);
+      page += 1;
+    }
   }
 
-  const json = (await response.json()) as {
-    data?: Array<{ id?: string; name?: string | null }>;
-  };
-
-  const match = (json.data ?? []).find(
-    (project) => project.name?.trim().toLowerCase() === target,
-  );
-
-  if (!match?.id) {
-    return null;
-  }
-
-  return {
-    id: match.id,
-    name: match.name?.trim() || name.trim(),
-  };
+  return null;
 }
 
 export async function createTimesheetsProject(input: {
@@ -191,8 +207,23 @@ export async function createTimesheetsProject(input: {
     data?: { id?: string; name?: string };
   };
 
+  const createdId = json.data?.id?.trim();
+  if (!createdId) {
+    throw new Error(
+      "ATS create project returned no project id. Check Timesheets API response.",
+    );
+  }
+
+  // Confirm it is actually listable (avoids marking ATS Yes when create was a no-op).
+  const verified = await findTimesheetsProjectByName(projectName);
+  if (!verified) {
+    throw new Error(
+      `ATS reported create success for "${projectName}", but the project was not found afterward.`,
+    );
+  }
+
   return {
-    id: json.data?.id,
-    name: json.data?.name ?? projectName,
+    id: verified.id,
+    name: verified.name,
   };
 }
