@@ -1,13 +1,25 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
+import type { CustomerEntry } from "@/lib/customers";
+import {
+  buildProjectExportRows,
+  exportProjectsAsCsv,
+  exportProjectsAsExcel,
+  exportProjectsAsPdf,
+} from "@/lib/projects-export";
 import {
   isFinalReportSentStatus,
   isReadyToInvoice,
   READY_TO_INVOICE_VALUE,
   reminderFieldsForStatus,
-  sortProjectDetailsByStatusDesc,
   todayIsoInLosAngeles,
   todayMmDdYyyyInLosAngeles,
   type ProjectDetailEntry,
@@ -203,6 +215,58 @@ function addDaysIso(days: number, from = new Date()) {
   return todayIsoInLosAngeles(date);
 }
 
+function matchesCustomerFilter(customer: CustomerEntry, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return (
+    customer.customerId.toLowerCase().includes(q) ||
+    customer.customerName.toLowerCase().includes(q)
+  );
+}
+
+type AtsUser = {
+  id: string;
+  name: string;
+  email: string;
+};
+
+function matchesEngineerFilter(user: AtsUser, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return (
+    user.name.toLowerCase().includes(q) ||
+    user.email.toLowerCase().includes(q)
+  );
+}
+
+function matchesStatusFilter(status: string, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return status.toLowerCase().includes(q);
+}
+
+function matchesInvoicedFilter(invoiced: string, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return invoiced.toLowerCase().includes(q);
+}
+
+function matchesPriorityFilter(priority: string, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  return priority.toLowerCase().includes(q);
+}
+
 export function ProjectsPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
   const [ready, setReady] = useState(false);
@@ -212,23 +276,60 @@ export function ProjectsPanel() {
   const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
     Record<string, string>
   >({});
+  const [customers, setCustomers] = useState<CustomerEntry[]>([]);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
+  const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
+  const [atsUsers, setAtsUsers] = useState<AtsUser[]>([]);
+  const [engineerSearch, setEngineerSearch] = useState("");
+  const [selectedEngineerNames, setSelectedEngineerNames] = useState<string[]>(
+    [],
+  );
+  const [engineerDropdownOpen, setEngineerDropdownOpen] = useState(false);
+  const [statusSearch, setStatusSearch] = useState("");
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [invoicedSearch, setInvoicedSearch] = useState("");
+  const [selectedInvoiced, setSelectedInvoiced] = useState<string[]>([]);
+  const [invoicedDropdownOpen, setInvoicedDropdownOpen] = useState(false);
+  const [prioritySearch, setPrioritySearch] = useState("");
+  const [selectedPriorities, setSelectedPriorities] = useState<string[]>([]);
+  const [priorityDropdownOpen, setPriorityDropdownOpen] = useState(false);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [multilineEditor, setMultilineEditor] =
     useState<MultilineEditorState | null>(null);
   const [completeConfirm, setCompleteConfirm] =
     useState<CompleteConfirmState | null>(null);
   const [completingId, setCompletingId] = useState<string | null>(null);
-  const [sortingByStatus, setSortingByStatus] = useState(false);
   const [pmCommentsPrompt, setPmCommentsPrompt] =
     useState<PmCommentsPromptState | null>(null);
   const [statusPmPrompt, setStatusPmPrompt] =
     useState<StatusPmActionPromptState | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
+  const customerFilterRef = useRef<HTMLDivElement | null>(null);
+  const customerSearchRef = useRef<HTMLInputElement | null>(null);
+  const engineerFilterRef = useRef<HTMLDivElement | null>(null);
+  const engineerSearchRef = useRef<HTMLInputElement | null>(null);
+  const statusFilterRef = useRef<HTMLDivElement | null>(null);
+  const statusSearchRef = useRef<HTMLInputElement | null>(null);
+  const invoicedFilterRef = useRef<HTMLDivElement | null>(null);
+  const invoicedSearchRef = useRef<HTMLInputElement | null>(null);
+  const priorityFilterRef = useRef<HTMLDivElement | null>(null);
+  const prioritySearchRef = useRef<HTMLInputElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const editorTitleId = useId();
   const completeTitleId = useId();
   const pmCommentsTitleId = useId();
   const statusPmTitleId = useId();
+  const customerListId = useId();
+  const engineerListId = useId();
+  const statusListId = useId();
+  const invoicedListId = useId();
+  const priorityListId = useId();
+  const exportMenuId = useId();
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const pmCommentsTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const statusPmTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -315,6 +416,723 @@ export function ProjectsPanel() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadCustomers() {
+      try {
+        const response = await fetch("/api/customers", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("Could not load customers.");
+        }
+        const data = (await response.json()) as {
+          customers?: CustomerEntry[];
+        };
+        if (!cancelled) {
+          setCustomers(data.customers ?? []);
+        }
+      } catch {
+        if (!cancelled) {
+          setCustomers([]);
+        }
+      }
+    }
+
+    void loadCustomers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAtsUsers() {
+      try {
+        const response = await fetch("/api/timesheets/users", {
+          cache: "no-store",
+        });
+        const data = (await response.json()) as {
+          users?: AtsUser[];
+        };
+        if (!cancelled) {
+          setAtsUsers(data.users ?? []);
+        }
+      } catch {
+        if (!cancelled) {
+          setAtsUsers([]);
+        }
+      }
+    }
+
+    void loadAtsUsers();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (
+      !customerDropdownOpen &&
+      !engineerDropdownOpen &&
+      !statusDropdownOpen &&
+      !invoicedDropdownOpen &&
+      !priorityDropdownOpen &&
+      !exportDropdownOpen
+    ) {
+      return;
+    }
+
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+      if (
+        customerDropdownOpen &&
+        customerFilterRef.current &&
+        !customerFilterRef.current.contains(target)
+      ) {
+        setCustomerDropdownOpen(false);
+      }
+      if (
+        engineerDropdownOpen &&
+        engineerFilterRef.current &&
+        !engineerFilterRef.current.contains(target)
+      ) {
+        setEngineerDropdownOpen(false);
+      }
+      if (
+        statusDropdownOpen &&
+        statusFilterRef.current &&
+        !statusFilterRef.current.contains(target)
+      ) {
+        setStatusDropdownOpen(false);
+      }
+      if (
+        invoicedDropdownOpen &&
+        invoicedFilterRef.current &&
+        !invoicedFilterRef.current.contains(target)
+      ) {
+        setInvoicedDropdownOpen(false);
+      }
+      if (
+        priorityDropdownOpen &&
+        priorityFilterRef.current &&
+        !priorityFilterRef.current.contains(target)
+      ) {
+        setPriorityDropdownOpen(false);
+      }
+      if (
+        exportDropdownOpen &&
+        exportMenuRef.current &&
+        !exportMenuRef.current.contains(target)
+      ) {
+        setExportDropdownOpen(false);
+      }
+    }
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setCustomerDropdownOpen(false);
+        setEngineerDropdownOpen(false);
+        setStatusDropdownOpen(false);
+        setInvoicedDropdownOpen(false);
+        setPriorityDropdownOpen(false);
+        setExportDropdownOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [
+    customerDropdownOpen,
+    engineerDropdownOpen,
+    statusDropdownOpen,
+    invoicedDropdownOpen,
+    priorityDropdownOpen,
+    exportDropdownOpen,
+  ]);
+
+  useEffect(() => {
+    if (!customerDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      customerSearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [customerDropdownOpen]);
+
+  useEffect(() => {
+    if (!engineerDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      engineerSearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [engineerDropdownOpen]);
+
+  useEffect(() => {
+    if (!statusDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      statusSearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [statusDropdownOpen]);
+
+  useEffect(() => {
+    if (!invoicedDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      invoicedSearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [invoicedDropdownOpen]);
+
+  useEffect(() => {
+    if (!priorityDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      prioritySearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [priorityDropdownOpen]);
+
+  function engineerFromNaming(row: ProjectDetailEntry) {
+    const fromNaming =
+      namingEngineerByUniqueId[row.displayId.trim().toLowerCase()];
+    if (fromNaming?.trim()) {
+      return fromNaming.trim();
+    }
+    return row.engineer.trim();
+  }
+
+  const customerOptions = useMemo(() => {
+    const byId = new Map<string, CustomerEntry>();
+    for (const customer of customers) {
+      const id = customer.customerId.trim();
+      if (id) {
+        byId.set(id.toLowerCase(), customer);
+      }
+    }
+    for (const row of rows) {
+      const id = row.customer.trim();
+      if (!id) {
+        continue;
+      }
+      const key = id.toLowerCase();
+      if (!byId.has(key)) {
+        byId.set(key, {
+          id: `row-customer-${key}`,
+          customerId: id,
+          customerName: "",
+          email: "",
+          pocName: "",
+          pocEmail: "",
+          billToAddress: "",
+          apNumber: "",
+        });
+      }
+    }
+    return [...byId.values()].sort((a, b) =>
+      a.customerId.localeCompare(b.customerId, undefined, {
+        sensitivity: "base",
+      }),
+    );
+  }, [customers, rows]);
+
+  const customerMatches = useMemo(
+    () =>
+      customerOptions.filter((customer) =>
+        matchesCustomerFilter(customer, customerSearch),
+      ),
+    [customerOptions, customerSearch],
+  );
+
+  const selectedCustomerIdSet = useMemo(
+    () => new Set(selectedCustomerIds.map((id) => id.toLowerCase())),
+    [selectedCustomerIds],
+  );
+
+  const allVisibleCustomersSelected =
+    customerMatches.length > 0 &&
+    customerMatches.every((customer) =>
+      selectedCustomerIdSet.has(customer.customerId.trim().toLowerCase()),
+    );
+
+  const engineerOptions = useMemo(
+    () =>
+      [...atsUsers]
+        .filter((user) => user.name.trim())
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+        ),
+    [atsUsers],
+  );
+
+  const engineerMatches = useMemo(
+    () =>
+      engineerOptions.filter((user) =>
+        matchesEngineerFilter(user, engineerSearch),
+      ),
+    [engineerOptions, engineerSearch],
+  );
+
+  const selectedEngineerNameSet = useMemo(
+    () => new Set(selectedEngineerNames.map((name) => name.toLowerCase())),
+    [selectedEngineerNames],
+  );
+
+  const allVisibleEngineersSelected =
+    engineerMatches.length > 0 &&
+    engineerMatches.every((user) =>
+      selectedEngineerNameSet.has(user.name.trim().toLowerCase()),
+    );
+
+  const statusOptions = useMemo(() => {
+    const options = new Set<string>(PROJECT_STATUS_OPTIONS);
+    for (const row of rows) {
+      if (row.status.trim()) {
+        options.add(row.status.trim());
+      }
+    }
+    return [...options].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [rows]);
+
+  const statusMatches = useMemo(
+    () =>
+      statusOptions.filter((status) =>
+        matchesStatusFilter(status, statusSearch),
+      ),
+    [statusOptions, statusSearch],
+  );
+
+  const selectedStatusSet = useMemo(
+    () => new Set(selectedStatuses.map((status) => status.toLowerCase())),
+    [selectedStatuses],
+  );
+
+  const allVisibleStatusesSelected =
+    statusMatches.length > 0 &&
+    statusMatches.every((status) =>
+      selectedStatusSet.has(status.toLowerCase()),
+    );
+
+  const invoicedOptions = useMemo(() => {
+    const options = new Set<string>(PROJECT_INVOICED_OPTIONS);
+    for (const row of rows) {
+      if (row.invoiced.trim()) {
+        options.add(row.invoiced.trim());
+      }
+    }
+    return [...options].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [rows]);
+
+  const invoicedMatches = useMemo(
+    () =>
+      invoicedOptions.filter((invoiced) =>
+        matchesInvoicedFilter(invoiced, invoicedSearch),
+      ),
+    [invoicedOptions, invoicedSearch],
+  );
+
+  const selectedInvoicedSet = useMemo(
+    () => new Set(selectedInvoiced.map((value) => value.toLowerCase())),
+    [selectedInvoiced],
+  );
+
+  const allVisibleInvoicedSelected =
+    invoicedMatches.length > 0 &&
+    invoicedMatches.every((invoiced) =>
+      selectedInvoicedSet.has(invoiced.toLowerCase()),
+    );
+
+  const priorityOptions = useMemo(() => {
+    const options = new Set<string>(PROJECT_PRIORITY_OPTIONS);
+    for (const row of rows) {
+      if (row.priority.trim()) {
+        options.add(row.priority.trim());
+      }
+    }
+    return [...options].sort((a, b) =>
+      a.localeCompare(b, undefined, { sensitivity: "base" }),
+    );
+  }, [rows]);
+
+  const priorityMatches = useMemo(
+    () =>
+      priorityOptions.filter((priority) =>
+        matchesPriorityFilter(priority, prioritySearch),
+      ),
+    [priorityOptions, prioritySearch],
+  );
+
+  const selectedPrioritySet = useMemo(
+    () => new Set(selectedPriorities.map((value) => value.toLowerCase())),
+    [selectedPriorities],
+  );
+
+  const allVisiblePrioritiesSelected =
+    priorityMatches.length > 0 &&
+    priorityMatches.every((priority) =>
+      selectedPrioritySet.has(priority.toLowerCase()),
+    );
+
+  const filteredRows = useMemo(() => {
+    return rows.filter((row) => {
+      if (
+        selectedCustomerIds.length > 0 &&
+        !selectedCustomerIdSet.has(row.customer.trim().toLowerCase())
+      ) {
+        return false;
+      }
+      if (selectedEngineerNames.length > 0) {
+        const engineer = engineerFromNaming(row).toLowerCase();
+        if (!engineer || !selectedEngineerNameSet.has(engineer)) {
+          return false;
+        }
+      }
+      if (selectedStatuses.length > 0) {
+        const status = row.status.trim().toLowerCase();
+        if (!status || !selectedStatusSet.has(status)) {
+          return false;
+        }
+      }
+      if (selectedInvoiced.length > 0) {
+        const invoiced = row.invoiced.trim().toLowerCase();
+        if (!invoiced || !selectedInvoicedSet.has(invoiced)) {
+          return false;
+        }
+      }
+      if (selectedPriorities.length > 0) {
+        const priority = row.priority.trim().toLowerCase();
+        if (!priority || !selectedPrioritySet.has(priority)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [
+    rows,
+    selectedCustomerIds,
+    selectedCustomerIdSet,
+    selectedEngineerNames,
+    selectedEngineerNameSet,
+    selectedStatuses,
+    selectedStatusSet,
+    selectedInvoiced,
+    selectedInvoicedSet,
+    selectedPriorities,
+    selectedPrioritySet,
+    namingEngineerByUniqueId,
+  ]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [
+    selectedCustomerIds,
+    selectedEngineerNames,
+    selectedStatuses,
+    selectedInvoiced,
+    selectedPriorities,
+  ]);
+
+  function toggleCustomerId(customerId: string) {
+    const id = customerId.trim();
+    if (!id) {
+      return;
+    }
+    const key = id.toLowerCase();
+    setSelectedCustomerIds((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, id];
+    });
+  }
+
+  function toggleSelectAllCustomersVisible() {
+    const visibleIds = customerMatches
+      .map((customer) => customer.customerId.trim())
+      .filter(Boolean);
+    if (visibleIds.length === 0) {
+      return;
+    }
+    if (allVisibleCustomersSelected) {
+      const visibleKeys = new Set(visibleIds.map((id) => id.toLowerCase()));
+      setSelectedCustomerIds((current) =>
+        current.filter((id) => !visibleKeys.has(id.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedCustomerIds((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((id) => id.toLowerCase()));
+      for (const id of visibleIds) {
+        if (!existing.has(id.toLowerCase())) {
+          next.push(id);
+          existing.add(id.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearCustomerFilter() {
+    setSelectedCustomerIds([]);
+    setCustomerSearch("");
+  }
+
+  function toggleEngineerName(name: string) {
+    const value = name.trim();
+    if (!value) {
+      return;
+    }
+    const key = value.toLowerCase();
+    setSelectedEngineerNames((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, value];
+    });
+  }
+
+  function toggleSelectAllEngineersVisible() {
+    const visibleNames = engineerMatches
+      .map((user) => user.name.trim())
+      .filter(Boolean);
+    if (visibleNames.length === 0) {
+      return;
+    }
+    if (allVisibleEngineersSelected) {
+      const visibleKeys = new Set(visibleNames.map((name) => name.toLowerCase()));
+      setSelectedEngineerNames((current) =>
+        current.filter((name) => !visibleKeys.has(name.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedEngineerNames((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((name) => name.toLowerCase()));
+      for (const name of visibleNames) {
+        if (!existing.has(name.toLowerCase())) {
+          next.push(name);
+          existing.add(name.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearEngineerFilter() {
+    setSelectedEngineerNames([]);
+    setEngineerSearch("");
+  }
+
+  function toggleStatus(status: string) {
+    const value = status.trim();
+    if (!value) {
+      return;
+    }
+    const key = value.toLowerCase();
+    setSelectedStatuses((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, value];
+    });
+  }
+
+  function toggleSelectAllStatusesVisible() {
+    const visibleStatuses = statusMatches.map((status) => status.trim()).filter(Boolean);
+    if (visibleStatuses.length === 0) {
+      return;
+    }
+    if (allVisibleStatusesSelected) {
+      const visibleKeys = new Set(
+        visibleStatuses.map((status) => status.toLowerCase()),
+      );
+      setSelectedStatuses((current) =>
+        current.filter((status) => !visibleKeys.has(status.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedStatuses((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((status) => status.toLowerCase()));
+      for (const status of visibleStatuses) {
+        if (!existing.has(status.toLowerCase())) {
+          next.push(status);
+          existing.add(status.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearStatusFilter() {
+    setSelectedStatuses([]);
+    setStatusSearch("");
+  }
+
+  function toggleInvoiced(invoiced: string) {
+    const value = invoiced.trim();
+    if (!value) {
+      return;
+    }
+    const key = value.toLowerCase();
+    setSelectedInvoiced((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, value];
+    });
+  }
+
+  function toggleSelectAllInvoicedVisible() {
+    const visibleValues = invoicedMatches
+      .map((invoiced) => invoiced.trim())
+      .filter(Boolean);
+    if (visibleValues.length === 0) {
+      return;
+    }
+    if (allVisibleInvoicedSelected) {
+      const visibleKeys = new Set(
+        visibleValues.map((value) => value.toLowerCase()),
+      );
+      setSelectedInvoiced((current) =>
+        current.filter((value) => !visibleKeys.has(value.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedInvoiced((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((value) => value.toLowerCase()));
+      for (const value of visibleValues) {
+        if (!existing.has(value.toLowerCase())) {
+          next.push(value);
+          existing.add(value.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearInvoicedFilter() {
+    setSelectedInvoiced([]);
+    setInvoicedSearch("");
+  }
+
+  function togglePriority(priority: string) {
+    const value = priority.trim();
+    if (!value) {
+      return;
+    }
+    const key = value.toLowerCase();
+    setSelectedPriorities((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, value];
+    });
+  }
+
+  function toggleSelectAllPrioritiesVisible() {
+    const visibleValues = priorityMatches
+      .map((priority) => priority.trim())
+      .filter(Boolean);
+    if (visibleValues.length === 0) {
+      return;
+    }
+    if (allVisiblePrioritiesSelected) {
+      const visibleKeys = new Set(
+        visibleValues.map((value) => value.toLowerCase()),
+      );
+      setSelectedPriorities((current) =>
+        current.filter((value) => !visibleKeys.has(value.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedPriorities((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((value) => value.toLowerCase()));
+      for (const value of visibleValues) {
+        if (!existing.has(value.toLowerCase())) {
+          next.push(value);
+          existing.add(value.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearPriorityFilter() {
+    setSelectedPriorities([]);
+    setPrioritySearch("");
+  }
+
+  function closeOtherFilters(
+    except: "customer" | "engineer" | "status" | "invoiced" | "priority",
+  ) {
+    if (except !== "customer") {
+      setCustomerDropdownOpen(false);
+    }
+    if (except !== "engineer") {
+      setEngineerDropdownOpen(false);
+    }
+    if (except !== "status") {
+      setStatusDropdownOpen(false);
+    }
+    if (except !== "invoiced") {
+      setInvoicedDropdownOpen(false);
+    }
+    if (except !== "priority") {
+      setPriorityDropdownOpen(false);
+    }
+    setExportDropdownOpen(false);
+  }
+
+  function handleExport(format: "excel" | "pdf" | "csv") {
+    setExportError(null);
+    try {
+      const exportRows = buildProjectExportRows(
+        filteredRows,
+        engineerFromNaming,
+      );
+      if (format === "excel") {
+        exportProjectsAsExcel(exportRows);
+      } else if (format === "pdf") {
+        exportProjectsAsPdf(exportRows);
+      } else {
+        exportProjectsAsCsv(exportRows);
+      }
+      setExportDropdownOpen(false);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "Failed to export projects.",
+      );
+    }
+  }
 
   useEffect(() => {
     if (!multilineEditor) {
@@ -644,37 +1462,6 @@ export function ProjectsPanel() {
     }
   }
 
-  async function sortByStatusDescending() {
-    const previous = persistedRowsRef.current;
-    const sorted = sortProjectDetailsByStatusDesc(previous);
-    setSortingByStatus(true);
-    setRows(sorted);
-    setPage(1);
-    setError(null);
-
-    try {
-      const response = await fetch("/api/project-details", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectDetails: sorted }),
-      });
-      if (!response.ok) {
-        const data = (await response.json()) as { error?: string };
-        throw new Error(data.error || "Failed to sort projects.");
-      }
-      persistedRowsRef.current = sorted;
-    } catch (sortError) {
-      setRows(previous);
-      setError(
-        sortError instanceof Error
-          ? sortError.message
-          : "Failed to sort projects.",
-      );
-    } finally {
-      setSortingByStatus(false);
-    }
-  }
-
   function renderMultilinePreview(
     row: ProjectDetailEntry,
     field: MultilineField,
@@ -818,62 +1605,509 @@ export function ProjectsPanel() {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
-
-  function engineerFromNaming(row: ProjectDetailEntry) {
-    const fromNaming =
-      namingEngineerByUniqueId[row.displayId.trim().toLowerCase()];
-    if (fromNaming?.trim()) {
-      return fromNaming.trim();
-    }
-    return row.engineer.trim();
-  }
-
-  const statusOptions = (() => {
-    const options = new Set<string>(PROJECT_STATUS_OPTIONS);
-    for (const row of rows) {
-      if (row.status.trim()) {
-        options.add(row.status.trim());
-      }
-    }
-    return [...options];
-  })();
-
-  const invoicedOptions = (() => {
-    const options = new Set<string>(PROJECT_INVOICED_OPTIONS);
-    for (const row of rows) {
-      if (row.invoiced.trim()) {
-        options.add(row.invoiced.trim());
-      }
-    }
-    return [...options];
-  })();
-
-  const priorityOptions = (() => {
-    const options = new Set<string>(PROJECT_PRIORITY_OPTIONS);
-    for (const row of rows) {
-      if (row.priority.trim()) {
-        options.add(row.priority.trim());
-      }
-    }
-    return [...options];
-  })();
+  const pageRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <section className="content-panel content-panel--actions">
-      <div className="panel-title-row panel-title-row--actions-only">
-        <button
-          type="button"
-          className="button secondary"
-          disabled={!ready || sortingByStatus || rows.length === 0}
-          onClick={() => void sortByStatusDescending()}
-        >
-          {sortingByStatus ? "Sorting…" : "Sort by Status"}
-        </button>
+      <div className="projects-filters-bar">
+        <div className="projects-filters-left">
+          <span className="projects-filters-label">Filters</span>
+          <div className="filter-chip" ref={customerFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedCustomerIds.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={customerDropdownOpen}
+            aria-controls={customerListId}
+            onClick={() => {
+              setCustomerDropdownOpen((open) => !open);
+              closeOtherFilters("customer");
+            }}
+          >
+            Customer
+            {selectedCustomerIds.length > 0
+              ? ` (${selectedCustomerIds.length})`
+              : ""}
+          </button>
+          {customerDropdownOpen ? (
+            <div
+              id={customerListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by customer"
+            >
+              <input
+                ref={customerSearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={customerSearch}
+                placeholder="Search for a Customer..."
+                onChange={(event) => setCustomerSearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleCustomersSelected}
+                    disabled={customerMatches.length === 0}
+                    onChange={toggleSelectAllCustomersVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {customerMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">No matching customers.</p>
+                ) : (
+                  customerMatches.map((customer) => {
+                    const id = customer.customerId.trim();
+                    const checked = selectedCustomerIdSet.has(id.toLowerCase());
+                    const name = customer.customerName.trim();
+                    return (
+                      <label key={customer.id} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleCustomerId(id)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {name || id}
+                          </span>
+                          {name ? (
+                            <span className="filter-dropdown-option-meta">
+                              {id}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedCustomerIds.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearCustomerFilter}
+                >
+                  Clear customer filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="filter-chip" ref={engineerFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedEngineerNames.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={engineerDropdownOpen}
+            aria-controls={engineerListId}
+            onClick={() => {
+              setEngineerDropdownOpen((open) => !open);
+              closeOtherFilters("engineer");
+            }}
+          >
+            Engineer
+            {selectedEngineerNames.length > 0
+              ? ` (${selectedEngineerNames.length})`
+              : ""}
+          </button>
+          {engineerDropdownOpen ? (
+            <div
+              id={engineerListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by engineer"
+            >
+              <input
+                ref={engineerSearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={engineerSearch}
+                placeholder="Search for an Engineer..."
+                onChange={(event) => setEngineerSearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleEngineersSelected}
+                    disabled={engineerMatches.length === 0}
+                    onChange={toggleSelectAllEngineersVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {engineerMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">
+                    {atsUsers.length === 0
+                      ? "No active ATS users loaded."
+                      : "No matching engineers."}
+                  </p>
+                ) : (
+                  engineerMatches.map((user) => {
+                    const name = user.name.trim();
+                    const checked = selectedEngineerNameSet.has(
+                      name.toLowerCase(),
+                    );
+                    return (
+                      <label key={user.id} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleEngineerName(name)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {name}
+                          </span>
+                          {user.email.trim() ? (
+                            <span className="filter-dropdown-option-meta">
+                              {user.email.trim()}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedEngineerNames.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearEngineerFilter}
+                >
+                  Clear engineer filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="filter-chip" ref={statusFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedStatuses.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={statusDropdownOpen}
+            aria-controls={statusListId}
+            onClick={() => {
+              setStatusDropdownOpen((open) => !open);
+              closeOtherFilters("status");
+            }}
+          >
+            Status
+            {selectedStatuses.length > 0
+              ? ` (${selectedStatuses.length})`
+              : ""}
+          </button>
+          {statusDropdownOpen ? (
+            <div
+              id={statusListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by status"
+            >
+              <input
+                ref={statusSearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={statusSearch}
+                placeholder="Search for a Status..."
+                onChange={(event) => setStatusSearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleStatusesSelected}
+                    disabled={statusMatches.length === 0}
+                    onChange={toggleSelectAllStatusesVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {statusMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">No matching statuses.</p>
+                ) : (
+                  statusMatches.map((status) => {
+                    const checked = selectedStatusSet.has(status.toLowerCase());
+                    return (
+                      <label key={status} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleStatus(status)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {status}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedStatuses.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearStatusFilter}
+                >
+                  Clear status filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="filter-chip" ref={invoicedFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedInvoiced.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={invoicedDropdownOpen}
+            aria-controls={invoicedListId}
+            onClick={() => {
+              setInvoicedDropdownOpen((open) => !open);
+              closeOtherFilters("invoiced");
+            }}
+          >
+            Invoiced
+            {selectedInvoiced.length > 0
+              ? ` (${selectedInvoiced.length})`
+              : ""}
+          </button>
+          {invoicedDropdownOpen ? (
+            <div
+              id={invoicedListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by invoiced"
+            >
+              <input
+                ref={invoicedSearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={invoicedSearch}
+                placeholder="Search for Invoiced..."
+                onChange={(event) => setInvoicedSearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleInvoicedSelected}
+                    disabled={invoicedMatches.length === 0}
+                    onChange={toggleSelectAllInvoicedVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {invoicedMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">No matching values.</p>
+                ) : (
+                  invoicedMatches.map((invoiced) => {
+                    const checked = selectedInvoicedSet.has(
+                      invoiced.toLowerCase(),
+                    );
+                    return (
+                      <label key={invoiced} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleInvoiced(invoiced)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {invoiced}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedInvoiced.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearInvoicedFilter}
+                >
+                  Clear invoiced filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="filter-chip" ref={priorityFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedPriorities.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={priorityDropdownOpen}
+            aria-controls={priorityListId}
+            onClick={() => {
+              setPriorityDropdownOpen((open) => !open);
+              closeOtherFilters("priority");
+            }}
+          >
+            Priority
+            {selectedPriorities.length > 0
+              ? ` (${selectedPriorities.length})`
+              : ""}
+          </button>
+          {priorityDropdownOpen ? (
+            <div
+              id={priorityListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by priority"
+            >
+              <input
+                ref={prioritySearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={prioritySearch}
+                placeholder="Search for a Priority..."
+                onChange={(event) => setPrioritySearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisiblePrioritiesSelected}
+                    disabled={priorityMatches.length === 0}
+                    onChange={toggleSelectAllPrioritiesVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {priorityMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">No matching priorities.</p>
+                ) : (
+                  priorityMatches.map((priority) => {
+                    const checked = selectedPrioritySet.has(
+                      priority.toLowerCase(),
+                    );
+                    return (
+                      <label key={priority} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePriority(priority)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {priority}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedPriorities.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearPriorityFilter}
+                >
+                  Clear priority filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+        </div>
+
+        <div className="projects-filters-right" ref={exportMenuRef}>
+          <button
+            type="button"
+            className="filter-chip-button projects-export-button"
+            disabled={!ready}
+            aria-expanded={exportDropdownOpen}
+            aria-controls={exportMenuId}
+            onClick={() => {
+              setExportDropdownOpen((open) => !open);
+              setCustomerDropdownOpen(false);
+              setEngineerDropdownOpen(false);
+              setStatusDropdownOpen(false);
+              setInvoicedDropdownOpen(false);
+              setPriorityDropdownOpen(false);
+            }}
+          >
+            Export
+          </button>
+          {exportDropdownOpen ? (
+            <div
+              id={exportMenuId}
+              className="filter-dropdown filter-dropdown--export"
+              role="menu"
+              aria-label="Export projects"
+            >
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("excel")}
+              >
+                Export as Excel
+              </button>
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("pdf")}
+              >
+                Export as PDF
+              </button>
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("csv")}
+              >
+                Export as CSV
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
+
+      {exportError ? (
+        <p className="form-message error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
 
       {error ? (
         <p className="form-message error" role="alert">
@@ -908,7 +2142,13 @@ export function ProjectsPanel() {
                       colSpan={PROJECT_TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No projects yet. Create one from Project Naming.
+                      {selectedCustomerIds.length > 0 ||
+                      selectedEngineerNames.length > 0 ||
+                      selectedStatuses.length > 0 ||
+                      selectedInvoiced.length > 0 ||
+                      selectedPriorities.length > 0
+                        ? "No projects match the selected filters."
+                        : "No projects yet. Create one from Project Naming."}
                     </td>
                   </tr>
                 ) : (
@@ -1124,7 +2364,7 @@ export function ProjectsPanel() {
             </table>
           </div>
 
-          {rows.length > PAGE_SIZE ? (
+          {filteredRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -1139,8 +2379,8 @@ export function ProjectsPanel() {
                 <span className="pagination-range">
                   {" "}
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, rows.length)} of {rows.length}
-                  )
+                  {Math.min(pageStart + PAGE_SIZE, filteredRows.length)} of{" "}
+                  {filteredRows.length})
                 </span>
               </span>
               <button

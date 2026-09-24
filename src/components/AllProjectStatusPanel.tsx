@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
+  ALL_PROJECT_STATUS_PHASES,
   buildAllProjectStatusRows,
   formatStatusPercent,
   type AllProjectStatusRow,
@@ -19,6 +20,8 @@ const TABLE_HEADERS = [
   "%",
   "Phase",
 ] as const;
+
+type PhaseFilter = "all" | (typeof ALL_PROJECT_STATUS_PHASES)[number];
 
 function cell(value: string) {
   return value.trim() ? value : "—";
@@ -44,6 +47,7 @@ export function AllProjectStatusPanel() {
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
+  const [phaseFilter, setPhaseFilter] = useState<PhaseFilter>("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -97,13 +101,19 @@ export function AllProjectStatusPanel() {
   }, []);
 
   const filtered = useMemo(
-    () => rows.filter((row) => matchesQuery(row, query)),
-    [rows, query],
+    () =>
+      rows.filter((row) => {
+        if (phaseFilter !== "all" && row.phase !== phaseFilter) {
+          return false;
+        }
+        return matchesQuery(row, query);
+      }),
+    [rows, query, phaseFilter],
   );
 
   useEffect(() => {
     setPage(1);
-  }, [query]);
+  }, [query, phaseFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -122,6 +132,24 @@ export function AllProjectStatusPanel() {
             placeholder="ID, customer, name, status, or phase"
             onChange={(event) => setQuery(event.target.value)}
           />
+        </label>
+        <label className="field" style={{ margin: 0, minWidth: "12rem" }}>
+          <span className="field-label">Phase</span>
+          <select
+            className="field-input field-select"
+            value={phaseFilter}
+            onChange={(event) =>
+              setPhaseFilter(event.target.value as PhaseFilter)
+            }
+            aria-label="Filter by phase"
+          >
+            <option value="all">All phases</option>
+            {ALL_PROJECT_STATUS_PHASES.map((phase) => (
+              <option key={phase} value={phase}>
+                {phase}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -160,7 +188,7 @@ export function AllProjectStatusPanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      {query.trim()
+                      {query.trim() || phaseFilter !== "all"
                         ? "No matching projects."
                         : "No projects yet."}
                     </td>

@@ -31,6 +31,8 @@ export type NewProjectFormValues = {
   engineer?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
+  /** QB checkbox → Yes / No on Project Naming. */
+  qb?: boolean;
 };
 
 type AtsUser = {
@@ -41,7 +43,7 @@ type AtsUser = {
 
 type ProjectFormFields = Omit<
   NewProjectFormValues,
-  "uniqueId" | "fullName" | "createOnBasecamp" | "createOnAts" | "engineer"
+  "uniqueId" | "fullName" | "createOnBasecamp" | "createOnAts" | "engineer" | "qb"
 > & {
   engineer: string;
 };
@@ -56,6 +58,8 @@ type NewProjectDialogProps = {
   initialCreateOnBasecamp?: boolean;
   /** Seed Create on ATS checkbox (Edit). */
   initialCreateOnAts?: boolean;
+  /** Seed QB checkbox (Edit). */
+  initialQb?: boolean;
   existingProjects?: ProjectEntry[];
   excludeProjectId?: string | null;
 };
@@ -97,6 +101,7 @@ export function NewProjectDialog({
   initialValues = null,
   initialCreateOnBasecamp = false,
   initialCreateOnAts = false,
+  initialQb = false,
   existingProjects = [],
   excludeProjectId = null,
 }: NewProjectDialogProps) {
@@ -116,6 +121,7 @@ export function NewProjectDialog({
   const [basecampConnected, setBasecampConnected] = useState(false);
   const [basecampStatusLoading, setBasecampStatusLoading] = useState(false);
   const [createOnAts, setCreateOnAts] = useState(false);
+  const [qb, setQb] = useState(false);
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
   const [engineers, setEngineers] = useState<AtsUser[]>([]);
@@ -187,6 +193,7 @@ export function NewProjectDialog({
     setUniqueIdError(null);
     setCreateOnBasecamp(initialCreateOnBasecamp);
     setCreateOnAts(initialCreateOnAts);
+    setQb(initialQb);
     setEngineersError(null);
     setSaving(false);
     setShowCustomerSuggestions(false);
@@ -203,6 +210,7 @@ export function NewProjectDialog({
     initialValues?.engineer,
     initialCreateOnBasecamp,
     initialCreateOnAts,
+    initialQb,
   ]);
 
   useEffect(() => {
@@ -533,6 +541,7 @@ export function NewProjectDialog({
         engineer: values.engineer.trim() || undefined,
         createOnBasecamp,
         createOnAts,
+        qb,
       });
       // Parent returns false when Basecamp/ATS/save failed — keep dialog open.
       if (result === false) {
@@ -810,6 +819,19 @@ export function NewProjectDialog({
           </label>
 
           <div className="field">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={qb}
+                disabled={saving}
+                onChange={(event) => setQb(event.target.checked)}
+              />
+              <span>QB</span>
+            </label>
+            <span className="field-hint">
+              Checked = Yes, unchecked = No on Project Naming.
+            </span>
+
             <label className="checkbox-row">
               <input
                 type="checkbox"

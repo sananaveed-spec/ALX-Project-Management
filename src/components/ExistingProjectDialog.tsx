@@ -24,6 +24,8 @@ export type ExistingProjectSaveValues = {
   engineer?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
+  /** QB checkbox → Yes / No on Project Naming. */
+  qb?: boolean;
 };
 
 type AtsUser = {
@@ -91,6 +93,7 @@ export function ExistingProjectDialog({
   const [basecampConnected, setBasecampConnected] = useState(false);
   const [basecampStatusLoading, setBasecampStatusLoading] = useState(false);
   const [createOnAts, setCreateOnAts] = useState(false);
+  const [qb, setQb] = useState(false);
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
   const [engineer, setEngineer] = useState("");
@@ -156,6 +159,7 @@ export function ExistingProjectDialog({
     setUniqueIdError(null);
     setCreateOnBasecamp(false);
     setCreateOnAts(false);
+    setQb(false);
     setEngineer("");
     setEngineersError(null);
     setSaving(false);
@@ -319,8 +323,9 @@ export function ExistingProjectDialog({
     });
     setSelectedSourceId(project.id);
     setEngineer(project.engineer?.trim() ?? "");
-    setCreateOnBasecamp(project.basecamp?.trim().toLowerCase() === "yes");
-    setCreateOnAts(project.ats?.trim().toLowerCase() === "yes");
+    setCreateOnBasecamp(false);
+    setCreateOnAts(false);
+    setQb(false);
     setQuery(project.fullName || `${project.uniqueId} - ${project.projectName}`);
     setShowSuggestions(false);
     setUniqueIdError(null);
@@ -389,6 +394,7 @@ export function ExistingProjectDialog({
         engineer: engineer.trim() || undefined,
         createOnBasecamp,
         createOnAts,
+        qb,
       });
       if (result === false) {
         return;
@@ -631,6 +637,21 @@ export function ExistingProjectDialog({
               </span>
             )}
           </label>
+
+          <div className="field">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={qb}
+                onChange={(event) => setQb(event.target.checked)}
+                disabled={!selectedSourceId}
+              />
+              <span>QB</span>
+            </label>
+            <span className="field-hint">
+              Checked = Yes, unchecked = No on Project Naming.
+            </span>
+          </div>
 
           <div className="field">
             <label className="checkbox-row">

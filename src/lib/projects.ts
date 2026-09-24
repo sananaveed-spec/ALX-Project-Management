@@ -9,6 +9,8 @@ export type ProjectEntry = {
   fullName: string;
   /** Optional; from New/Existing Project engineer dropdown. */
   engineer: string;
+  /** "Yes" / "No" from QB checkbox on New/Existing Project. */
+  qb: string;
   /** "Yes" when created on Basecamp at save time. */
   basecamp: string;
   /** "Yes" when created on ATS / Timesheets at save time. */
@@ -264,7 +266,20 @@ export function normalizeProject(
     fullName:
       raw.fullName?.trim() || buildFullName(uniqueId, projectName),
     engineer: raw.engineer ?? "",
+    qb: normalizeQbFlag(raw.qb),
     basecamp: raw.basecamp ?? "",
     ats: raw.ats ?? "",
   };
+}
+
+function normalizeQbFlag(value: string | undefined) {
+  const trimmed = (value ?? "").trim().toLowerCase();
+  if (trimmed === "yes" || trimmed === "y" || trimmed === "true") {
+    return "Yes";
+  }
+  if (trimmed === "no" || trimmed === "n" || trimmed === "false") {
+    return "No";
+  }
+  // Legacy rows without qb: treat as No.
+  return "No";
 }

@@ -40,7 +40,7 @@ function cell(value: string | null | undefined) {
   return value?.trim() ? value : "—";
 }
 
-const NAMING_TABLE_COL_COUNT = 12;
+const NAMING_TABLE_COL_COUNT = 13;
 
 async function persistProjects(projects: ProjectEntry[]) {
   const response = await fetch("/api/projects", {
@@ -103,6 +103,7 @@ export function ProjectNamingPanel() {
   );
   /** Group keys (client / project name labels) that are expanded to show child rows. */
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [qbFilter, setQbFilter] = useState<"all" | "yes" | "no">("all");
   const [page, setPage] = useState(1);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -348,6 +349,7 @@ export function ProjectNamingPanel() {
       uniqueId: values.uniqueId,
       fullName: values.fullName,
       engineer: values.engineer?.trim() ?? "",
+      qb: values.qb ? "Yes" : "No",
       basecamp: values.createOnBasecamp ? "Yes" : "",
       ats: values.createOnAts ? "Yes" : "",
     };
@@ -394,6 +396,7 @@ export function ProjectNamingPanel() {
       uniqueId: values.uniqueId,
       fullName: values.fullName,
       engineer: values.engineer?.trim() ?? "",
+      qb: values.qb ? "Yes" : "No",
       basecamp: values.createOnBasecamp ? "Yes" : "",
       ats: values.createOnAts ? "Yes" : "",
     };
@@ -457,8 +460,17 @@ export function ProjectNamingPanel() {
             uniqueId: values.uniqueId,
             fullName: values.fullName,
             engineer: values.engineer?.trim() ?? "",
-            basecamp: values.createOnBasecamp ? "Yes" : "",
-            ats: values.createOnAts ? "Yes" : "",
+            qb: values.qb ? "Yes" : "No",
+            basecamp: values.createOnBasecamp
+              ? "Yes"
+              : alreadyBasecamp
+                ? project.basecamp
+                : "",
+            ats: values.createOnAts
+              ? "Yes"
+              : alreadyAts
+                ? project.ats
+                : "",
           }
         : project,
     );
@@ -535,12 +547,21 @@ export function ProjectNamingPanel() {
     ]);
   }
 
-  const visibleProjects =
-    tableView === "all"
-      ? projects
-      : tableView === "new" && latestProjectId
-        ? projects.filter((project) => project.id === latestProjectId)
-        : [];
+  const visibleProjects = (() => {
+    const base =
+      tableView === "all"
+        ? projects
+        : tableView === "new" && latestProjectId
+          ? projects.filter((project) => project.id === latestProjectId)
+          : [];
+    if (qbFilter === "all") {
+      return base;
+    }
+    return base.filter((project) => {
+      const isYes = project.qb?.trim().toLowerCase() === "yes";
+      return qbFilter === "yes" ? isYes : !isYes;
+    });
+  })();
 
   const isGrouped = tableView === "all" && groupBy !== "none";
 
@@ -632,7 +653,9 @@ export function ProjectNamingPanel() {
 
       {!ready ? (
         <p className="table-empty">Loading saved projects…</p>
-      ) : tableView && visibleProjects.length > 0 ? (
+      ) : tableView === "all" && projects.length === 0 ? (
+        <p className="table-empty">No projects yet.</p>
+      ) : tableView ? (
         <>
           <div className="table-toolbar">
             {tableView === "all" ? (
@@ -657,6 +680,45 @@ export function ProjectNamingPanel() {
             ) : (
               <span />
             )}
+            <fieldset className="qb-filter-radios">
+              <legend className="qb-filter-legend">QB</legend>
+              <label className="qb-filter-option">
+                <input
+                  type="radio"
+                  name="naming-qb-filter"
+                  checked={qbFilter === "all"}
+                  onChange={() => {
+                    setQbFilter("all");
+                    setPage(1);
+                  }}
+                />
+                <span>All</span>
+              </label>
+              <label className="qb-filter-option">
+                <input
+                  type="radio"
+                  name="naming-qb-filter"
+                  checked={qbFilter === "yes"}
+                  onChange={() => {
+                    setQbFilter("yes");
+                    setPage(1);
+                  }}
+                />
+                <span>Yes</span>
+              </label>
+              <label className="qb-filter-option">
+                <input
+                  type="radio"
+                  name="naming-qb-filter"
+                  checked={qbFilter === "no"}
+                  onChange={() => {
+                    setQbFilter("no");
+                    setPage(1);
+                  }}
+                />
+                <span>No</span>
+              </label>
+            </fieldset>
             <button
               type="button"
               className="button danger"
@@ -668,6 +730,16 @@ export function ProjectNamingPanel() {
             </button>
           </div>
 
+          {visibleProjects.length === 0 ? (
+            <p className="table-empty">
+              {qbFilter === "yes"
+                ? "No projects with QB Yes."
+                : qbFilter === "no"
+                  ? "No projects with QB No."
+                  : "No projects to show."}
+            </p>
+          ) : (
+            <>
           <div className="table-wrap">
             <table className="projects-table">
               <thead>
@@ -688,6 +760,7 @@ export function ProjectNamingPanel() {
                   <th>UniqueID</th>
                   <th>Full Name</th>
                   <th>Engineer</th>
+                  <th>QB</th>
                   <th>Basecamp</th>
                   <th>ATS</th>
                   <th className="col-actions">Actions</th>
@@ -753,6 +826,11 @@ export function ProjectNamingPanel() {
                               <td>{project.uniqueId}</td>
                               <td>{project.fullName}</td>
                               <td>{cell(project.engineer)}</td>
+                              <td>
+                                {project.qb?.trim().toLowerCase() === "yes"
+                                  ? "Yes"
+                                  : "No"}
+                              </td>
                               <td>{cell(project.basecamp)}</td>
                               <td>{cell(project.ats)}</td>
                               <td className="col-actions">
@@ -825,6 +903,11 @@ export function ProjectNamingPanel() {
                           <td>{project.uniqueId}</td>
                           <td>{project.fullName}</td>
                           <td>{cell(project.engineer)}</td>
+                          <td>
+                            {project.qb?.trim().toLowerCase() === "yes"
+                              ? "Yes"
+                              : "No"}
+                          </td>
                           <td>{cell(project.basecamp)}</td>
                           <td>{cell(project.ats)}</td>
                           <td className="col-actions">
@@ -901,9 +984,9 @@ export function ProjectNamingPanel() {
               </button>
             </div>
           ) : null}
+            </>
+          )}
         </>
-      ) : tableView === "all" && projects.length === 0 ? (
-        <p className="table-empty">No projects yet.</p>
       ) : null}
 
       <NewProjectDialog
@@ -934,6 +1017,7 @@ export function ProjectNamingPanel() {
         initialCreateOnAts={
           editingProject?.ats?.trim().toLowerCase() === "yes"
         }
+        initialQb={editingProject?.qb?.trim().toLowerCase() === "yes"}
         initialValues={
           editingProject
             ? {

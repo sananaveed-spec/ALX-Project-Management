@@ -17,6 +17,12 @@ export type AllProjectStatusRow = {
   source: "active" | "completed";
 };
 
+export const ALL_PROJECT_STATUS_PHASES = [
+  "HOLD",
+  "Final Report Sent",
+  "In Progress",
+] as const;
+
 export const ALL_PROJECT_STATUS_PERCENT_RULES = [
   "Completed → 100%",
   "Final Report Sent (b.Final Report N Sent) → 90%",
