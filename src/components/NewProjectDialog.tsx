@@ -29,6 +29,8 @@ export type NewProjectFormValues = {
   fullName: string;
   /** Optional; written to Projects → Engineer on create. */
   engineer?: string;
+  /** Optional; PM name from active ATS users. */
+  pmName?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
   /** QB checkbox → Yes / No on Project Naming. */
@@ -43,9 +45,16 @@ type AtsUser = {
 
 type ProjectFormFields = Omit<
   NewProjectFormValues,
-  "uniqueId" | "fullName" | "createOnBasecamp" | "createOnAts" | "engineer" | "qb"
+  | "uniqueId"
+  | "fullName"
+  | "createOnBasecamp"
+  | "createOnAts"
+  | "engineer"
+  | "pmName"
+  | "qb"
 > & {
   engineer: string;
+  pmName: string;
 };
 
 type NewProjectDialogProps = {
@@ -71,6 +80,7 @@ const emptyForm: ProjectFormFields = {
   year: "",
   no: "",
   engineer: "",
+  pmName: "",
 };
 
 function customerLabel(customer: CustomerEntry) {
@@ -187,7 +197,7 @@ export function NewProjectDialog({
 
     setValues(
       initialValues
-        ? { ...emptyForm, ...initialValues, engineer: initialValues.engineer ?? "" }
+        ? { ...emptyForm, ...initialValues, engineer: initialValues.engineer ?? "", pmName: initialValues.pmName ?? "" }
         : emptyForm,
     );
     setUniqueIdError(null);
@@ -208,6 +218,7 @@ export function NewProjectDialog({
     initialValues?.year,
     initialValues?.no,
     initialValues?.engineer,
+    initialValues?.pmName,
     initialCreateOnBasecamp,
     initialCreateOnAts,
     initialQb,
@@ -539,6 +550,7 @@ export function NewProjectDialog({
         uniqueId,
         fullName,
         engineer: values.engineer.trim() || undefined,
+        pmName: values.pmName.trim() || undefined,
         createOnBasecamp,
         createOnAts,
         qb,
@@ -802,6 +814,12 @@ export function NewProjectDialog({
                   ? "Loading ATS users…"
                   : "Select engineer (optional)"}
               </option>
+              {values.engineer.trim() &&
+              !engineers.some((user) => user.name === values.engineer.trim()) ? (
+                <option value={values.engineer.trim()}>
+                  {values.engineer.trim()}
+                </option>
+              ) : null}
               {engineers.map((user) => (
                 <option key={user.id} value={user.name}>
                   {user.name}
@@ -814,6 +832,41 @@ export function NewProjectDialog({
               <span className="field-hint">
                 Active users from ATS / Timesheets. Sets Projects → Engineer
                 when saved.
+              </span>
+            )}
+          </label>
+
+          <label className="field">
+            <span className="field-label">PM Name (optional)</span>
+            <select
+              className="field-input field-select"
+              name="pmName"
+              value={values.pmName}
+              disabled={engineersLoading}
+              onChange={(event) => updateField("pmName", event.target.value)}
+            >
+              <option value="">
+                {engineersLoading
+                  ? "Loading ATS users…"
+                  : "Select PM (optional)"}
+              </option>
+              {values.pmName.trim() &&
+              !engineers.some((user) => user.name === values.pmName.trim()) ? (
+                <option value={values.pmName.trim()}>
+                  {values.pmName.trim()}
+                </option>
+              ) : null}
+              {engineers.map((user) => (
+                <option key={`pm-${user.id}`} value={user.name}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            {engineersError ? (
+              <span className="field-hint error">{engineersError}</span>
+            ) : (
+              <span className="field-hint">
+                Active users from ATS / Timesheets.
               </span>
             )}
           </label>

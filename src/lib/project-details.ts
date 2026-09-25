@@ -6,6 +6,8 @@ export type ProjectDetailEntry = {
   projectName: string;
   projectInitializeDate: string;
   engineer: string;
+  /** From Project Naming → PM Name (ATS user). */
+  pmName: string;
   status: string;
   invoiced: string;
   recentActivity: string;
@@ -158,6 +160,79 @@ export function appendPartialInvoiceHistory(
   return current ? `${current}\n${line}` : line;
 }
 
+/** Sum of Percent Invoiced values recorded in partial invoice history. */
+export function sumPartialInvoicePercent(history: string): number {
+  const matches = history.matchAll(/Percent Invoiced:\s*([0-9]+(?:\.[0-9]+)?)\s*%/gi);
+  let total = 0;
+  for (const match of matches) {
+    const value = Number.parseFloat(match[1] ?? "");
+    if (Number.isFinite(value)) {
+      total += value;
+    }
+  }
+  return total;
+}
+
+/**
+ * How much invoice % is still available for a project (max 100%).
+ * FULL invoices consume the full remaining amount (treated as 100% used).
+ */
+export function remainingInvoicePercent(row: {
+  invoiced: string;
+  partialInvoiceHistory: string;
+  partialInvoicingDate?: string;
+}): number {
+  if (row.invoiced.trim().toUpperCase() === "FULL") {
+    return 0;
+  }
+  const history =
+    row.partialInvoiceHistory.trim() ||
+    (row.partialInvoicingDate ?? "").trim();
+  const used = sumPartialInvoicePercent(history);
+  return Math.max(0, Math.round((100 - used) * 1000) / 1000);
+}
+
+/** True when project has reached 100% (FULL status or partials totaling 100%). */
+export function isFullyInvoiced(row: {
+  invoiced: string;
+  partialInvoiceHistory: string;
+  partialInvoicingDate?: string;
+}): boolean {
+  if (row.invoiced.trim().toUpperCase() === "FULL") {
+    return true;
+  }
+  return remainingInvoicePercent(row) <= 0;
+}
+
+/** Validate a new partial percent against remaining capacity. */
+export function validatePartialInvoicePercent(
+  row: {
+    invoiced: string;
+    partialInvoiceHistory: string;
+    partialInvoicingDate?: string;
+  },
+  percentInvoiced: string,
+): { ok: true; percent: number; remaining: number } | { ok: false; error: string } {
+  const remaining = remainingInvoicePercent(row);
+  if (remaining <= 0) {
+    return {
+      ok: false,
+      error: "This project is already invoiced to 100%. No more invoices can be added.",
+    };
+  }
+  const percent = Number.parseFloat(percentInvoiced.trim());
+  if (!Number.isFinite(percent) || percent <= 0) {
+    return { ok: false, error: "Enter a percent greater than 0." };
+  }
+  if (percent > remaining) {
+    return {
+      ok: false,
+      error: `Only ${remaining}% remaining for this project (max 100% total).`,
+    };
+  }
+  return { ok: true, percent, remaining };
+}
+
 export function normalizeProjectDetail(
   raw: Partial<ProjectDetailEntry> & { id: string },
 ): ProjectDetailEntry {
@@ -168,6 +243,7 @@ export function normalizeProjectDetail(
     projectName: raw.projectName ?? "",
     projectInitializeDate: raw.projectInitializeDate ?? "",
     engineer: raw.engineer ?? "",
+    pmName: raw.pmName ?? "",
     status: raw.status ?? "",
     invoiced: raw.invoiced ?? "",
     recentActivity: raw.recentActivity ?? "",
@@ -197,6 +273,7 @@ export function projectDetailFromNaming(input: {
   projectName: string;
   awardDate: string;
   engineer?: string;
+  pmName?: string;
 }): ProjectDetailEntry {
   return normalizeProjectDetail({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -205,6 +282,7 @@ export function projectDetailFromNaming(input: {
     projectName: input.projectName.trim(),
     projectInitializeDate: input.awardDate.trim(),
     engineer: input.engineer?.trim() ?? "",
+    pmName: input.pmName?.trim() ?? "",
     namingProjectId: input.namingProjectId,
   });
 }
@@ -273,6 +351,8 @@ export function upsertProjectDetailFromNaming(
     awardDate: string;
     /** When set on create (or explicit update), writes Projects → Engineer. */
     engineer?: string;
+    /** When set on create (or explicit update), writes Projects → PM Name. */
+    pmName?: string;
   },
 ): ProjectDetailEntry[] {
   const displayId = input.uniqueId.trim();
@@ -295,6 +375,7 @@ export function upsertProjectDetailFromNaming(
       ...(input.engineer !== undefined
         ? { engineer: input.engineer.trim() }
         : {}),
+      ...(input.pmName !== undefined ? { pmName: input.pmName.trim() } : {}),
     };
     return sortProjectDetailsNewestFirst(next);
   }

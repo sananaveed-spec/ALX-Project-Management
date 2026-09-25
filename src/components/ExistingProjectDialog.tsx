@@ -22,6 +22,8 @@ export type ExistingProjectSaveValues = {
   fullName: string;
   /** Optional; written to Projects → Engineer on create. */
   engineer?: string;
+  /** Optional; PM name from active ATS users. */
+  pmName?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
   /** QB checkbox → Yes / No on Project Naming. */
@@ -97,6 +99,7 @@ export function ExistingProjectDialog({
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
   const [engineer, setEngineer] = useState("");
+  const [pmName, setPmName] = useState("");
   const [engineers, setEngineers] = useState<AtsUser[]>([]);
   const [engineersLoading, setEngineersLoading] = useState(false);
   const [engineersError, setEngineersError] = useState<string | null>(null);
@@ -161,6 +164,7 @@ export function ExistingProjectDialog({
     setCreateOnAts(false);
     setQb(false);
     setEngineer("");
+    setPmName("");
     setEngineersError(null);
     setSaving(false);
     const timer = window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -323,6 +327,7 @@ export function ExistingProjectDialog({
     });
     setSelectedSourceId(project.id);
     setEngineer(project.engineer?.trim() ?? "");
+    setPmName(project.pmName?.trim() ?? "");
     setCreateOnBasecamp(false);
     setCreateOnAts(false);
     setQb(false);
@@ -392,6 +397,7 @@ export function ExistingProjectDialog({
         uniqueId,
         fullName,
         engineer: engineer.trim() || undefined,
+        pmName: pmName.trim() || undefined,
         createOnBasecamp,
         createOnAts,
         qb,
@@ -442,6 +448,7 @@ export function ExistingProjectDialog({
                   setFilled(emptyFilled);
                   setSelectedSourceId(null);
                   setEngineer("");
+                  setPmName("");
                   setCreateOnBasecamp(false);
                   setCreateOnAts(false);
                   setShowSuggestions(true);
@@ -634,6 +641,39 @@ export function ExistingProjectDialog({
               <span className="field-hint">
                 Active users from ATS / Timesheets. Sets Projects → Engineer
                 when saved.
+              </span>
+            )}
+          </label>
+
+          <label className="field">
+            <span className="field-label">PM Name (optional)</span>
+            <select
+              className="field-input field-select"
+              name="pmName"
+              value={pmName}
+              disabled={!selectedSourceId || engineersLoading}
+              onChange={(event) => setPmName(event.target.value)}
+            >
+              <option value="">
+                {engineersLoading
+                  ? "Loading ATS users…"
+                  : "Select PM (optional)"}
+              </option>
+              {pmName.trim() &&
+              !engineers.some((user) => user.name === pmName.trim()) ? (
+                <option value={pmName.trim()}>{pmName.trim()}</option>
+              ) : null}
+              {engineers.map((user) => (
+                <option key={`pm-${user.id}`} value={user.name}>
+                  {user.name}
+                </option>
+              ))}
+            </select>
+            {engineersError ? (
+              <span className="field-hint error">{engineersError}</span>
+            ) : (
+              <span className="field-hint">
+                Active users from ATS / Timesheets.
               </span>
             )}
           </label>

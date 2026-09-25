@@ -9,6 +9,8 @@ export type ProjectEntry = {
   fullName: string;
   /** Optional; from New/Existing Project engineer dropdown. */
   engineer: string;
+  /** Optional; PM from New/Existing Project ATS user dropdown. */
+  pmName: string;
   /** "Yes" / "No" from QB checkbox on New/Existing Project. */
   qb: string;
   /** "Yes" when created on Basecamp at save time. */
@@ -266,6 +268,7 @@ export function normalizeProject(
     fullName:
       raw.fullName?.trim() || buildFullName(uniqueId, projectName),
     engineer: raw.engineer ?? "",
+    pmName: raw.pmName ?? "",
     qb: normalizeQbFlag(raw.qb),
     basecamp: raw.basecamp ?? "",
     ats: raw.ats ?? "",

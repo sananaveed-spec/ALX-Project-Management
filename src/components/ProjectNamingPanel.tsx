@@ -40,7 +40,7 @@ function cell(value: string | null | undefined) {
   return value?.trim() ? value : "—";
 }
 
-const NAMING_TABLE_COL_COUNT = 13;
+const NAMING_TABLE_COL_COUNT = 14;
 
 async function persistProjects(projects: ProjectEntry[]) {
   const response = await fetch("/api/projects", {
@@ -62,6 +62,7 @@ async function persistProjectDetailFromNaming(input: {
   projectName: string;
   awardDate: string;
   engineer?: string;
+  pmName?: string;
 }) {
   const response = await fetch("/api/project-details");
   if (!response.ok) {
@@ -187,6 +188,7 @@ export function ProjectNamingPanel() {
     projectName: string;
     awardDate: string;
     engineer?: string;
+    pmName?: string;
   }) {
     try {
       await persistProjectDetailFromNaming(input);
@@ -349,6 +351,7 @@ export function ProjectNamingPanel() {
       uniqueId: values.uniqueId,
       fullName: values.fullName,
       engineer: values.engineer?.trim() ?? "",
+      pmName: values.pmName?.trim() ?? "",
       qb: values.qb ? "Yes" : "No",
       basecamp: values.createOnBasecamp ? "Yes" : "",
       ats: values.createOnAts ? "Yes" : "",
@@ -369,6 +372,7 @@ export function ProjectNamingPanel() {
       projectName: values.projectName,
       awardDate: values.awardDate,
       engineer: values.engineer,
+      pmName: values.pmName,
     });
     return true;
   }
@@ -396,6 +400,7 @@ export function ProjectNamingPanel() {
       uniqueId: values.uniqueId,
       fullName: values.fullName,
       engineer: values.engineer?.trim() ?? "",
+      pmName: values.pmName?.trim() ?? "",
       qb: values.qb ? "Yes" : "No",
       basecamp: values.createOnBasecamp ? "Yes" : "",
       ats: values.createOnAts ? "Yes" : "",
@@ -416,6 +421,7 @@ export function ProjectNamingPanel() {
       projectName: values.projectName,
       awardDate: values.awardDate,
       engineer: values.engineer,
+      pmName: values.pmName,
     });
     return true;
   }
@@ -460,6 +466,7 @@ export function ProjectNamingPanel() {
             uniqueId: values.uniqueId,
             fullName: values.fullName,
             engineer: values.engineer?.trim() ?? "",
+            pmName: values.pmName?.trim() ?? "",
             qb: values.qb ? "Yes" : "No",
             basecamp: values.createOnBasecamp
               ? "Yes"
@@ -488,6 +495,7 @@ export function ProjectNamingPanel() {
       projectName: values.projectName,
       awardDate: values.awardDate,
       engineer: values.engineer,
+      pmName: values.pmName,
     });
     return true;
   }
@@ -760,6 +768,7 @@ export function ProjectNamingPanel() {
                   <th>UniqueID</th>
                   <th>Full Name</th>
                   <th>Engineer</th>
+                  <th>PM Name</th>
                   <th>QB</th>
                   <th>Basecamp</th>
                   <th>ATS</th>
@@ -826,6 +835,7 @@ export function ProjectNamingPanel() {
                               <td>{project.uniqueId}</td>
                               <td>{project.fullName}</td>
                               <td>{cell(project.engineer)}</td>
+                              <td>{cell(project.pmName)}</td>
                               <td>
                                 {project.qb?.trim().toLowerCase() === "yes"
                                   ? "Yes"
@@ -903,6 +913,7 @@ export function ProjectNamingPanel() {
                           <td>{project.uniqueId}</td>
                           <td>{project.fullName}</td>
                           <td>{cell(project.engineer)}</td>
+                          <td>{cell(project.pmName)}</td>
                           <td>
                             {project.qb?.trim().toLowerCase() === "yes"
                               ? "Yes"
@@ -1027,6 +1038,7 @@ export function ProjectNamingPanel() {
                 year: editingProject.year,
                 no: editingProject.no,
                 engineer: editingProject.engineer ?? "",
+                pmName: editingProject.pmName ?? "",
               }
             : null
         }

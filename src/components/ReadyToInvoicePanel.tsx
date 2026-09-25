@@ -5,8 +5,12 @@ import { createPortal } from "react-dom";
 import {
   appendPartialInvoiceHistory,
   formatFullInvoiceNote,
+  isFullyInvoiced,
   isReadyToInvoice,
+  remainingInvoicePercent,
   sortProjectDetailsNewestFirst,
+  sumPartialInvoicePercent,
+  validatePartialInvoicePercent,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
 
@@ -118,6 +122,7 @@ export function ReadyToInvoicePanel() {
   const [invoiceWizard, setInvoiceWizard] = useState<InvoiceWizardState | null>(
     null,
   );
+  const [wizardError, setWizardError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
   const editorTitleId = useId();
@@ -202,7 +207,9 @@ export function ReadyToInvoicePanel() {
     }
   }, [invoiceWizard]);
 
-  const visibleRows = rows.filter((row) => isReadyToInvoice(row.invoiced));
+  const visibleRows = rows.filter(
+    (row) => isReadyToInvoice(row.invoiced) && !isFullyInvoiced(row),
+  );
 
   async function persistRow(
     rowId: string,
@@ -290,6 +297,14 @@ export function ReadyToInvoicePanel() {
   }
 
   function startMarkInvoiced(row: ProjectDetailEntry) {
+    const remaining = remainingInvoicePercent(row);
+    if (remaining <= 0) {
+      setError(
+        "This project is already invoiced to 100%. No more invoices can be added.",
+      );
+      return;
+    }
+    setWizardError(null);
     setInvoiceWizard({
       step: "askFull",
       rowId: row.id,
@@ -299,6 +314,17 @@ export function ReadyToInvoicePanel() {
 
   async function applyFullInvoice(rowId: string, invoiceNumber: string) {
     const previous = persistedRowsRef.current;
+    const current = previous.find((row) => row.id === rowId);
+    if (!current) {
+      return;
+    }
+    const remaining = remainingInvoicePercent(current);
+    if (remaining <= 0) {
+      setWizardError(
+        "This project is already invoiced to 100%. No more invoices can be added.",
+      );
+      return;
+    }
     const fullInvoicedDate = formatFullInvoiceNote(invoiceNumber);
     const patch = {
       id: rowId,
@@ -317,6 +343,7 @@ export function ReadyToInvoicePanel() {
     });
 
     setInvoicingId(rowId);
+    setWizardError(null);
     try {
       const ok = await persistRow(rowId, patch, toSave);
       if (ok) {
@@ -337,16 +364,25 @@ export function ReadyToInvoicePanel() {
     if (!current) {
       return;
     }
+    const validation = validatePartialInvoicePercent(current, percentInvoiced);
+    if (!validation.ok) {
+      setWizardError(validation.error);
+      return;
+    }
     const partialInvoiceHistory = appendPartialInvoiceHistory(
       current.partialInvoiceHistory,
       invoiceNumber,
-      percentInvoiced,
+      String(validation.percent),
     );
+    const usedAfter = sumPartialInvoicePercent(partialInvoiceHistory);
     const patch = {
       id: rowId,
-      invoiced: "PARTIAL",
+      invoiced: usedAfter >= 100 ? "FULL" : "PARTIAL",
       pmComments: "",
       partialInvoiceHistory,
+      ...(usedAfter >= 100
+        ? { fullInvoicedDate: formatFullInvoiceNote(invoiceNumber) }
+        : {}),
     };
     const toSave = previous.map((row) => {
       if (row.id !== rowId) {
@@ -359,6 +395,7 @@ export function ReadyToInvoicePanel() {
     });
 
     setInvoicingId(rowId);
+    setWizardError(null);
     try {
       const ok = await persistRow(rowId, patch, toSave);
       if (ok) {
@@ -480,6 +517,21 @@ export function ReadyToInvoicePanel() {
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
   const wizardBusy = invoicingId !== null;
+  const wizardRow =
+    invoiceWizard != null
+      ? (persistedRowsRef.current.find(
+          (row) => row.id === invoiceWizard.rowId,
+        ) ??
+        rows.find((row) => row.id === invoiceWizard.rowId) ??
+        null)
+      : null;
+  const wizardRemaining = wizardRow
+    ? remainingInvoicePercent(wizardRow)
+    : 100;
+  const wizardAlreadyInvoiced = Math.max(
+    0,
+    Math.round((100 - wizardRemaining) * 1000) / 1000,
+  );
 
   return (
     <section className="content-panel content-panel--actions">
@@ -706,12 +758,26 @@ export function ReadyToInvoicePanel() {
                     className="dialog-close"
                     aria-label="Close"
                     disabled={wizardBusy}
-                    onClick={() => setInvoiceWizard(null)}
+                    onClick={() => {
+                      setWizardError(null);
+                      setInvoiceWizard(null);
+                    }}
                   >
                     ×
                   </button>
                 </div>
                 <p className="dialog-subtitle">{invoiceWizard.projectLabel}</p>
+                {wizardAlreadyInvoiced > 0 || wizardRemaining < 100 ? (
+                  <p className="field-hint" style={{ marginTop: 0 }}>
+                    Already invoiced: {wizardAlreadyInvoiced}% · Remaining:{" "}
+                    {wizardRemaining}% (max 100%)
+                  </p>
+                ) : null}
+                {wizardError ? (
+                  <p className="form-message error" role="alert">
+                    {wizardError}
+                  </p>
+                ) : null}
 
                 {invoiceWizard.step === "askFull" ? (
                   <>
@@ -722,30 +788,32 @@ export function ReadyToInvoicePanel() {
                       <button
                         type="button"
                         className="button secondary"
-                        disabled={wizardBusy}
-                        onClick={() =>
+                        disabled={wizardBusy || wizardRemaining <= 0}
+                        onClick={() => {
+                          setWizardError(null);
                           setInvoiceWizard({
                             step: "partialPercent",
                             rowId: invoiceWizard.rowId,
                             projectLabel: invoiceWizard.projectLabel,
                             draft: "",
-                          })
-                        }
+                          });
+                        }}
                       >
                         No
                       </button>
                       <button
                         type="button"
                         className="button primary"
-                        disabled={wizardBusy}
-                        onClick={() =>
+                        disabled={wizardBusy || wizardRemaining <= 0}
+                        onClick={() => {
+                          setWizardError(null);
                           setInvoiceWizard({
                             step: "fullNumber",
                             rowId: invoiceWizard.rowId,
                             projectLabel: invoiceWizard.projectLabel,
                             draft: "",
-                          })
-                        }
+                          });
+                        }}
                       >
                         Yes
                       </button>
@@ -776,7 +844,10 @@ export function ReadyToInvoicePanel() {
                         type="button"
                         className="button secondary"
                         disabled={wizardBusy}
-                        onClick={() => setInvoiceWizard(null)}
+                        onClick={() => {
+                          setWizardError(null);
+                          setInvoiceWizard(null);
+                        }}
                       >
                         Cancel
                       </button>
@@ -802,22 +873,26 @@ export function ReadyToInvoicePanel() {
                 {invoiceWizard.step === "partialPercent" ? (
                   <>
                     <label className="field">
-                      <span className="field-label">Percent invoiced</span>
+                      <span className="field-label">
+                        Percent invoiced (max {wizardRemaining}%)
+                      </span>
                       <input
                         ref={invoiceInputRef}
                         className="field-input"
                         type="number"
                         min={1}
-                        max={100}
+                        max={wizardRemaining}
+                        step="any"
                         value={invoiceWizard.draft}
                         disabled={wizardBusy}
-                        placeholder="e.g. 25"
-                        onChange={(event) =>
+                        placeholder={`e.g. ${Math.min(25, wizardRemaining)}`}
+                        onChange={(event) => {
+                          setWizardError(null);
                           setInvoiceWizard({
                             ...invoiceWizard,
                             draft: event.target.value,
-                          })
-                        }
+                          });
+                        }}
                       />
                     </label>
                     <div className="dialog-actions">
@@ -825,7 +900,10 @@ export function ReadyToInvoicePanel() {
                         type="button"
                         className="button secondary"
                         disabled={wizardBusy}
-                        onClick={() => setInvoiceWizard(null)}
+                        onClick={() => {
+                          setWizardError(null);
+                          setInvoiceWizard(null);
+                        }}
                       >
                         Cancel
                       </button>
@@ -835,15 +913,28 @@ export function ReadyToInvoicePanel() {
                         disabled={
                           wizardBusy || !invoiceWizard.draft.trim()
                         }
-                        onClick={() =>
+                        onClick={() => {
+                          if (!wizardRow) {
+                            setWizardError("Could not find this project.");
+                            return;
+                          }
+                          const validation = validatePartialInvoicePercent(
+                            wizardRow,
+                            invoiceWizard.draft,
+                          );
+                          if (!validation.ok) {
+                            setWizardError(validation.error);
+                            return;
+                          }
+                          setWizardError(null);
                           setInvoiceWizard({
                             step: "partialNumber",
                             rowId: invoiceWizard.rowId,
                             projectLabel: invoiceWizard.projectLabel,
-                            percent: invoiceWizard.draft.trim(),
+                            percent: String(validation.percent),
                             draft: "",
-                          })
-                        }
+                          });
+                        }}
                       >
                         Next
                       </button>
@@ -877,7 +968,10 @@ export function ReadyToInvoicePanel() {
                         type="button"
                         className="button secondary"
                         disabled={wizardBusy}
-                        onClick={() => setInvoiceWizard(null)}
+                        onClick={() => {
+                          setWizardError(null);
+                          setInvoiceWizard(null);
+                        }}
                       >
                         Cancel
                       </button>

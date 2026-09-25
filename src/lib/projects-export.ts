@@ -8,6 +8,7 @@ export const PROJECT_EXPORT_HEADERS = [
   "Project Name",
   "Project Initialize Date",
   "Engineer",
+  "PM Name",
   "Status",
   "Invoiced",
   "Recent Activity",
@@ -31,6 +32,7 @@ export type ProjectExportRow = {
   projectName: string;
   projectInitializeDate: string;
   engineer: string;
+  pmName: string;
   status: string;
   invoiced: string;
   recentActivity: string;
@@ -51,6 +53,7 @@ export type ProjectExportRow = {
 export function buildProjectExportRows(
   rows: ProjectDetailEntry[],
   engineerForRow: (row: ProjectDetailEntry) => string,
+  pmNameForRow?: (row: ProjectDetailEntry) => string,
 ): ProjectExportRow[] {
   return rows.map((row) => ({
     displayId: row.displayId.trim(),
@@ -58,6 +61,7 @@ export function buildProjectExportRows(
     projectName: row.projectName.trim(),
     projectInitializeDate: row.projectInitializeDate.trim(),
     engineer: engineerForRow(row).trim(),
+    pmName: (pmNameForRow?.(row) ?? row.pmName).trim(),
     status: row.status.trim(),
     invoiced: row.invoiced.trim(),
     recentActivity: row.recentActivity.trim(),
@@ -83,6 +87,7 @@ function exportCells(row: ProjectExportRow): string[] {
     row.projectName,
     row.projectInitializeDate,
     row.engineer,
+    row.pmName,
     row.status,
     row.invoiced,
     row.recentActivity,

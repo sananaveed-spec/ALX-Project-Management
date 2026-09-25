@@ -17,8 +17,10 @@ import {
 } from "@/lib/projects-export";
 import {
   isFinalReportSentStatus,
+  isFullyInvoiced,
   isReadyToInvoice,
   READY_TO_INVOICE_VALUE,
+  remainingInvoicePercent,
   reminderFieldsForStatus,
   todayIsoInLosAngeles,
   todayMmDdYyyyInLosAngeles,
@@ -93,6 +95,7 @@ const PROJECT_TABLE_HEADERS = [
   "Project Name",
   "Project Initialize Date",
   "Engineer",
+  "PM Name",
   "Status",
   "Invoiced",
   "Recent Activity",
@@ -276,6 +279,10 @@ export function ProjectsPanel() {
   const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
     Record<string, string>
   >({});
+  /** UniqueID → PM name from Project Naming (source of truth for display). */
+  const [namingPmByUniqueId, setNamingPmByUniqueId] = useState<
+    Record<string, string>
+  >({});
   const [customers, setCustomers] = useState<CustomerEntry[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
   const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
@@ -286,6 +293,9 @@ export function ProjectsPanel() {
     [],
   );
   const [engineerDropdownOpen, setEngineerDropdownOpen] = useState(false);
+  const [pmSearch, setPmSearch] = useState("");
+  const [selectedPmNames, setSelectedPmNames] = useState<string[]>([]);
+  const [pmDropdownOpen, setPmDropdownOpen] = useState(false);
   const [statusSearch, setStatusSearch] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
@@ -313,6 +323,8 @@ export function ProjectsPanel() {
   const customerSearchRef = useRef<HTMLInputElement | null>(null);
   const engineerFilterRef = useRef<HTMLDivElement | null>(null);
   const engineerSearchRef = useRef<HTMLInputElement | null>(null);
+  const pmFilterRef = useRef<HTMLDivElement | null>(null);
+  const pmSearchRef = useRef<HTMLInputElement | null>(null);
   const statusFilterRef = useRef<HTMLDivElement | null>(null);
   const statusSearchRef = useRef<HTMLInputElement | null>(null);
   const invoicedFilterRef = useRef<HTMLDivElement | null>(null);
@@ -326,6 +338,7 @@ export function ProjectsPanel() {
   const statusPmTitleId = useId();
   const customerListId = useId();
   const engineerListId = useId();
+  const pmListId = useId();
   const statusListId = useId();
   const invoicedListId = useId();
   const priorityListId = useId();
@@ -377,6 +390,65 @@ export function ProjectsPanel() {
     };
   }, []);
 
+  // Lock fully invoiced projects as FULL (heal READY/PARTIAL that already hit 100%).
+  useEffect(() => {
+    if (!ready) {
+      return;
+    }
+    const snapshot = persistedRowsRef.current;
+    const stale = snapshot.filter(
+      (row) =>
+        isFullyInvoiced(row) && row.invoiced.trim().toUpperCase() !== "FULL",
+    );
+    if (stale.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function healFullyInvoiced() {
+      let working = persistedRowsRef.current;
+      for (const row of stale) {
+        if (cancelled) {
+          return;
+        }
+        const patch = { id: row.id, invoiced: "FULL" };
+        const toSave = working.map((item) =>
+          item.id === row.id ? { ...item, invoiced: "FULL" } : item,
+        );
+        try {
+          const response = await fetch("/api/project-details", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectDetail: patch }),
+          });
+          if (!response.ok) {
+            continue;
+          }
+          const data = (await response.json()) as {
+            projectDetail?: ProjectDetailEntry;
+          };
+          working = data.projectDetail
+            ? toSave.map((item) =>
+                item.id === row.id ? data.projectDetail! : item,
+              )
+            : toSave;
+          persistedRowsRef.current = working;
+          if (!cancelled) {
+            setRows(working);
+          }
+        } catch {
+          // leave row as-is; UI still shows FULL locked
+        }
+      }
+    }
+
+    void healFullyInvoiced();
+    return () => {
+      cancelled = true;
+    };
+  }, [ready]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -391,22 +463,34 @@ export function ProjectsPanel() {
             id?: string;
             uniqueId?: string;
             engineer?: string;
+            pmName?: string;
           }>;
         };
         if (!cancelled) {
-          const byUniqueId: Record<string, string> = {};
+          const engineerByUniqueId: Record<string, string> = {};
+          const pmByUniqueId: Record<string, string> = {};
           for (const project of data.projects ?? []) {
             const uniqueId = project.uniqueId?.trim() ?? "";
+            if (!uniqueId) {
+              continue;
+            }
+            const key = uniqueId.toLowerCase();
             const engineer = project.engineer?.trim() ?? "";
-            if (uniqueId && engineer) {
-              byUniqueId[uniqueId.toLowerCase()] = engineer;
+            if (engineer) {
+              engineerByUniqueId[key] = engineer;
+            }
+            const pmName = project.pmName?.trim() ?? "";
+            if (pmName) {
+              pmByUniqueId[key] = pmName;
             }
           }
-          setNamingEngineerByUniqueId(byUniqueId);
+          setNamingEngineerByUniqueId(engineerByUniqueId);
+          setNamingPmByUniqueId(pmByUniqueId);
         }
       } catch {
         if (!cancelled) {
           setNamingEngineerByUniqueId({});
+          setNamingPmByUniqueId({});
         }
       }
     }
@@ -476,6 +560,7 @@ export function ProjectsPanel() {
     if (
       !customerDropdownOpen &&
       !engineerDropdownOpen &&
+      !pmDropdownOpen &&
       !statusDropdownOpen &&
       !invoicedDropdownOpen &&
       !priorityDropdownOpen &&
@@ -502,6 +587,13 @@ export function ProjectsPanel() {
         !engineerFilterRef.current.contains(target)
       ) {
         setEngineerDropdownOpen(false);
+      }
+      if (
+        pmDropdownOpen &&
+        pmFilterRef.current &&
+        !pmFilterRef.current.contains(target)
+      ) {
+        setPmDropdownOpen(false);
       }
       if (
         statusDropdownOpen &&
@@ -537,6 +629,7 @@ export function ProjectsPanel() {
       if (event.key === "Escape") {
         setCustomerDropdownOpen(false);
         setEngineerDropdownOpen(false);
+        setPmDropdownOpen(false);
         setStatusDropdownOpen(false);
         setInvoicedDropdownOpen(false);
         setPriorityDropdownOpen(false);
@@ -553,6 +646,7 @@ export function ProjectsPanel() {
   }, [
     customerDropdownOpen,
     engineerDropdownOpen,
+    pmDropdownOpen,
     statusDropdownOpen,
     invoicedDropdownOpen,
     priorityDropdownOpen,
@@ -578,6 +672,16 @@ export function ProjectsPanel() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, [engineerDropdownOpen]);
+
+  useEffect(() => {
+    if (!pmDropdownOpen) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      pmSearchRef.current?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [pmDropdownOpen]);
 
   useEffect(() => {
     if (!statusDropdownOpen) {
@@ -616,6 +720,14 @@ export function ProjectsPanel() {
       return fromNaming.trim();
     }
     return row.engineer.trim();
+  }
+
+  function pmNameFromNaming(row: ProjectDetailEntry) {
+    const fromNaming = namingPmByUniqueId[row.displayId.trim().toLowerCase()];
+    if (fromNaming?.trim()) {
+      return fromNaming.trim();
+    }
+    return row.pmName.trim();
   }
 
   const customerOptions = useMemo(() => {
@@ -698,6 +810,25 @@ export function ProjectsPanel() {
     engineerMatches.length > 0 &&
     engineerMatches.every((user) =>
       selectedEngineerNameSet.has(user.name.trim().toLowerCase()),
+    );
+
+  const pmMatches = useMemo(
+    () =>
+      engineerOptions.filter((user) =>
+        matchesEngineerFilter(user, pmSearch),
+      ),
+    [engineerOptions, pmSearch],
+  );
+
+  const selectedPmNameSet = useMemo(
+    () => new Set(selectedPmNames.map((name) => name.toLowerCase())),
+    [selectedPmNames],
+  );
+
+  const allVisiblePmsSelected =
+    pmMatches.length > 0 &&
+    pmMatches.every((user) =>
+      selectedPmNameSet.has(user.name.trim().toLowerCase()),
     );
 
   const statusOptions = useMemo(() => {
@@ -807,6 +938,12 @@ export function ProjectsPanel() {
           return false;
         }
       }
+      if (selectedPmNames.length > 0) {
+        const pm = pmNameFromNaming(row).toLowerCase();
+        if (!pm || !selectedPmNameSet.has(pm)) {
+          return false;
+        }
+      }
       if (selectedStatuses.length > 0) {
         const status = row.status.trim().toLowerCase();
         if (!status || !selectedStatusSet.has(status)) {
@@ -833,6 +970,8 @@ export function ProjectsPanel() {
     selectedCustomerIdSet,
     selectedEngineerNames,
     selectedEngineerNameSet,
+    selectedPmNames,
+    selectedPmNameSet,
     selectedStatuses,
     selectedStatusSet,
     selectedInvoiced,
@@ -840,6 +979,7 @@ export function ProjectsPanel() {
     selectedPriorities,
     selectedPrioritySet,
     namingEngineerByUniqueId,
+    namingPmByUniqueId,
   ]);
 
   useEffect(() => {
@@ -847,6 +987,7 @@ export function ProjectsPanel() {
   }, [
     selectedCustomerIds,
     selectedEngineerNames,
+    selectedPmNames,
     selectedStatuses,
     selectedInvoiced,
     selectedPriorities,
@@ -944,6 +1085,55 @@ export function ProjectsPanel() {
   function clearEngineerFilter() {
     setSelectedEngineerNames([]);
     setEngineerSearch("");
+  }
+
+  function togglePmName(name: string) {
+    const value = name.trim();
+    if (!value) {
+      return;
+    }
+    const key = value.toLowerCase();
+    setSelectedPmNames((current) => {
+      const exists = current.some((item) => item.toLowerCase() === key);
+      if (exists) {
+        return current.filter((item) => item.toLowerCase() !== key);
+      }
+      return [...current, value];
+    });
+  }
+
+  function toggleSelectAllPmsVisible() {
+    const visibleNames = pmMatches
+      .map((user) => user.name.trim())
+      .filter(Boolean);
+    if (visibleNames.length === 0) {
+      return;
+    }
+    if (allVisiblePmsSelected) {
+      const visibleKeys = new Set(
+        visibleNames.map((name) => name.toLowerCase()),
+      );
+      setSelectedPmNames((current) =>
+        current.filter((name) => !visibleKeys.has(name.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedPmNames((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((name) => name.toLowerCase()));
+      for (const name of visibleNames) {
+        if (!existing.has(name.toLowerCase())) {
+          next.push(name);
+          existing.add(name.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function clearPmFilter() {
+    setSelectedPmNames([]);
+    setPmSearch("");
   }
 
   function toggleStatus(status: string) {
@@ -1092,13 +1282,22 @@ export function ProjectsPanel() {
   }
 
   function closeOtherFilters(
-    except: "customer" | "engineer" | "status" | "invoiced" | "priority",
+    except:
+      | "customer"
+      | "engineer"
+      | "pm"
+      | "status"
+      | "invoiced"
+      | "priority",
   ) {
     if (except !== "customer") {
       setCustomerDropdownOpen(false);
     }
     if (except !== "engineer") {
       setEngineerDropdownOpen(false);
+    }
+    if (except !== "pm") {
+      setPmDropdownOpen(false);
     }
     if (except !== "status") {
       setStatusDropdownOpen(false);
@@ -1118,6 +1317,7 @@ export function ProjectsPanel() {
       const exportRows = buildProjectExportRows(
         filteredRows,
         engineerFromNaming,
+        pmNameFromNaming,
       );
       if (format === "excel") {
         exportProjectsAsExcel(exportRows);
@@ -1355,6 +1555,26 @@ export function ProjectsPanel() {
   }
 
   async function handleInvoicedChange(row: ProjectDetailEntry, value: string) {
+    if (isFullyInvoiced(row)) {
+      setError(
+        "This project is fully invoiced (100%). Invoiced status is locked as FULL.",
+      );
+      // Heal stale READY/PARTIAL rows that already hit 100%.
+      if (row.invoiced.trim().toUpperCase() !== "FULL") {
+        await handleFieldChange(row.id, "invoiced", "FULL");
+      }
+      return;
+    }
+    if (
+      isReadyToInvoice(value) &&
+      remainingInvoicePercent({ ...row, invoiced: "PARTIAL" }) <= 0
+    ) {
+      setError(
+        "This project is already invoiced to 100%. It is locked as FULL.",
+      );
+      await handleFieldChange(row.id, "invoiced", "FULL");
+      return;
+    }
     const becomingReady =
       isReadyToInvoice(value) && !isReadyToInvoice(row.invoiced);
     const ok = await handleFieldChange(row.id, "invoiced", value);
@@ -1798,6 +2018,98 @@ export function ProjectsPanel() {
           ) : null}
         </div>
 
+        <div className="filter-chip" ref={pmFilterRef}>
+          <button
+            type="button"
+            className={
+              selectedPmNames.length > 0
+                ? "filter-chip-button filter-chip-button--active"
+                : "filter-chip-button"
+            }
+            disabled={!ready}
+            aria-expanded={pmDropdownOpen}
+            aria-controls={pmListId}
+            onClick={() => {
+              setPmDropdownOpen((open) => !open);
+              closeOtherFilters("pm");
+            }}
+          >
+            PM
+            {selectedPmNames.length > 0
+              ? ` (${selectedPmNames.length})`
+              : ""}
+          </button>
+          {pmDropdownOpen ? (
+            <div
+              id={pmListId}
+              className="filter-dropdown"
+              role="dialog"
+              aria-label="Filter by PM"
+            >
+              <input
+                ref={pmSearchRef}
+                className="field-input filter-dropdown-search"
+                type="search"
+                value={pmSearch}
+                placeholder="Search for a PM..."
+                onChange={(event) => setPmSearch(event.target.value)}
+                autoComplete="off"
+              />
+              <div className="filter-dropdown-list">
+                <label className="filter-dropdown-option filter-dropdown-option--select-all">
+                  <input
+                    type="checkbox"
+                    checked={allVisiblePmsSelected}
+                    disabled={pmMatches.length === 0}
+                    onChange={toggleSelectAllPmsVisible}
+                  />
+                  <span>Select all</span>
+                </label>
+                {pmMatches.length === 0 ? (
+                  <p className="filter-dropdown-empty">
+                    {atsUsers.length === 0
+                      ? "No active ATS users loaded."
+                      : "No matching PMs."}
+                  </p>
+                ) : (
+                  pmMatches.map((user) => {
+                    const name = user.name.trim();
+                    const checked = selectedPmNameSet.has(name.toLowerCase());
+                    return (
+                      <label key={`pm-${user.id}`} className="filter-dropdown-option">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => togglePmName(name)}
+                        />
+                        <span className="filter-dropdown-option-text">
+                          <span className="filter-dropdown-option-title">
+                            {name}
+                          </span>
+                          {user.email.trim() ? (
+                            <span className="filter-dropdown-option-meta">
+                              {user.email.trim()}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              {selectedPmNames.length > 0 ? (
+                <button
+                  type="button"
+                  className="filter-dropdown-clear"
+                  onClick={clearPmFilter}
+                >
+                  Clear PM filter
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
         <div className="filter-chip" ref={statusFilterRef}>
           <button
             type="button"
@@ -2060,6 +2372,7 @@ export function ProjectsPanel() {
               setExportDropdownOpen((open) => !open);
               setCustomerDropdownOpen(false);
               setEngineerDropdownOpen(false);
+              setPmDropdownOpen(false);
               setStatusDropdownOpen(false);
               setInvoicedDropdownOpen(false);
               setPriorityDropdownOpen(false);
@@ -2144,6 +2457,7 @@ export function ProjectsPanel() {
                     >
                       {selectedCustomerIds.length > 0 ||
                       selectedEngineerNames.length > 0 ||
+                      selectedPmNames.length > 0 ||
                       selectedStatuses.length > 0 ||
                       selectedInvoiced.length > 0 ||
                       selectedPriorities.length > 0
@@ -2169,6 +2483,7 @@ export function ProjectsPanel() {
                           : "—"}
                       </td>
                       <td>{cell(engineerFromNaming(row))}</td>
+                      <td>{cell(pmNameFromNaming(row))}</td>
                       <td>
                         <select
                           className="field-input field-select table-select table-select--status"
@@ -2200,9 +2515,17 @@ export function ProjectsPanel() {
                       <td>
                         <select
                           className="field-input field-select table-select"
-                          value={row.invoiced}
+                          value={
+                            isFullyInvoiced(row) ? "FULL" : row.invoiced
+                          }
                           disabled={
+                            isFullyInvoiced(row) ||
                             savingKey === savingKeyFor(row.id, "invoiced")
+                          }
+                          title={
+                            isFullyInvoiced(row)
+                              ? "Fully invoiced (100%) — locked"
+                              : undefined
                           }
                           aria-label={`Invoiced for ${row.projectName || row.displayId}`}
                           onChange={(event) =>
