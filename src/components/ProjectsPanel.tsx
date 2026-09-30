@@ -938,7 +938,7 @@ export function ProjectsPanel() {
     );
 
   const priorityOptions = useMemo(
-    () => [...PROJECT_PRIORITY_OPTIONS],
+    () => [...PROJECT_PRIORITY_OPTIONS] as string[],
     [],
   );
 
