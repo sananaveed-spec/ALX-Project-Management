@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import {
+  cascadeDeleteByUniqueIds,
+  confirmCascadeProjectDelete,
+} from "@/lib/cascade-delete-client";
+import {
   sortCompletedProjectsNewestFirst,
   type CompletedProjectEntry,
 } from "@/lib/completed-projects";
@@ -45,6 +49,7 @@ export function CompletedProjectsPanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,9 +97,67 @@ export function CompletedProjectsPanel() {
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
 
+  function toggleSelect(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
+
+  function toggleSelectAllVisible(visible: CompletedProjectEntry[]) {
+    const visibleIds = visible.map((row) => row.id);
+    const allSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((current) =>
+        current.filter((id) => !visibleIds.includes(id)),
+      );
+      return;
+    }
+    setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
+  }
+
+  const allVisibleSelected =
+    pageRows.length > 0 &&
+    pageRows.every((row) => selectedIds.includes(row.id));
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedIds);
+    const uniqueIds = rows
+      .filter((row) => selectedSet.has(row.id))
+      .map((row) => row.displayId);
+
+    setError(null);
+    try {
+      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      setRows(
+        sortCompletedProjectsNewestFirst(
+          Array.isArray(data.completedProjects)
+            ? (data.completedProjects as CompletedProjectEntry[])
+            : rows.filter((row) => !selectedSet.has(row.id)),
+        ),
+      );
+      setSelectedIds([]);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete projects.",
+      );
+    }
+  }
+
   return (
     <section className="content-panel content-panel--actions">
-
       {error ? (
         <p className="form-message error" role="alert">
           {error}
@@ -105,10 +168,30 @@ export function CompletedProjectsPanel() {
         <p className="table-empty">Loading completed projects…</p>
       ) : (
         <>
+          <div className="table-toolbar">
+            <button
+              type="button"
+              className="button danger"
+              disabled={selectedIds.length === 0}
+              onClick={() => void handleDeleteSelected()}
+            >
+              Delete
+              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+            </button>
+          </div>
+
           <div className="table-wrap">
-            <table className="projects-table projects-table--wide">
+            <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
+                  <th className="col-sticky col-sticky-check">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={() => toggleSelectAllVisible(pageRows)}
+                      aria-label="Select all completed projects on this page"
+                    />
+                  </th>
                   {TABLE_HEADERS.map((header, index) => (
                     <th
                       key={header}
@@ -127,39 +210,53 @@ export function CompletedProjectsPanel() {
                 {pageRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={TABLE_HEADERS.length}
+                      colSpan={TABLE_HEADERS.length + 1}
                       className="table-empty-cell"
                     >
                       No completed projects yet. Mark Project Completed on the
-                      Projects tab.
+                      Active Projects tab.
                     </td>
                   </tr>
                 ) : (
-                  pageRows.map((row) => (
-                    <tr key={row.id}>
-                      <td className="col-sticky col-sticky-1">
-                        {cell(row.displayId)}
-                      </td>
-                      <td className="col-sticky col-sticky-2">
-                        {cell(row.customer)}
-                      </td>
-                      <td className="col-sticky col-sticky-3">
-                        {cell(row.projectName)}
-                      </td>
-                      <td>{formatDateLabel(row.date)}</td>
-                      <td>{cell(row.engineer)}</td>
-                      <td>
-                        <span className="table-preview-text">
-                          {cell(row.projectHistory)}
-                        </span>
-                      </td>
-                      <td>{cell(row.partialInvoiceDate)}</td>
-                      <td>{cell(row.invoicedDate)}</td>
-                      <td>{cell(row.finalReportSentOn)}</td>
-                      <td>{formatDateLabel(row.projectCompleted)}</td>
-                      <td>{cell(row.labelsShipped)}</td>
-                    </tr>
-                  ))
+                  pageRows.map((row) => {
+                    const isSelected = selectedIds.includes(row.id);
+                    return (
+                      <tr
+                        key={row.id}
+                        className={isSelected ? "row-selected" : undefined}
+                      >
+                        <td className="col-sticky col-sticky-check">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(row.id)}
+                            aria-label={`Select ${row.projectName || row.displayId}`}
+                          />
+                        </td>
+                        <td className="col-sticky col-sticky-1">
+                          {cell(row.displayId)}
+                        </td>
+                        <td className="col-sticky col-sticky-2">
+                          {cell(row.customer)}
+                        </td>
+                        <td className="col-sticky col-sticky-3">
+                          {cell(row.projectName)}
+                        </td>
+                        <td>{formatDateLabel(row.date)}</td>
+                        <td>{cell(row.engineer)}</td>
+                        <td>
+                          <span className="table-preview-text">
+                            {cell(row.projectHistory)}
+                          </span>
+                        </td>
+                        <td>{cell(row.partialInvoiceDate)}</td>
+                        <td>{cell(row.invoicedDate)}</td>
+                        <td>{cell(row.finalReportSentOn)}</td>
+                        <td>{formatDateLabel(row.projectCompleted)}</td>
+                        <td>{cell(row.labelsShipped)}</td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>

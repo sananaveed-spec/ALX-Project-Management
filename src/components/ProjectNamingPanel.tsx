@@ -13,6 +13,10 @@ import {
   upsertProjectDetailFromNaming,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
+import {
+  cascadeDeleteByUniqueIds,
+  confirmCascadeProjectDelete,
+} from "@/lib/cascade-delete-client";
 import { getUniqueIdConflict, normalizeProject, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
 
 type TableView = "new" | "all";
@@ -106,7 +110,9 @@ export function ProjectNamingPanel() {
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [qbFilter, setQbFilter] = useState<"all" | "yes" | "no">("all");
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -505,32 +511,49 @@ export function ProjectNamingPanel() {
       return;
     }
 
-    const confirmed = window.confirm(
-      selectedIds.length === 1
-        ? "Delete the selected project?"
-        : `Delete ${selectedIds.length} selected projects?`,
-    );
-    if (!confirmed) {
+    if (!confirmCascadeProjectDelete(selectedIds.length)) {
       return;
     }
 
     const selectedSet = new Set(selectedIds);
-    const nextProjects = projects.filter(
-      (project) => !selectedSet.has(project.id),
-    );
+    const uniqueIds = projects
+      .filter((project) => selectedSet.has(project.id))
+      .map((project) => project.uniqueId);
 
-    setSelectedIds([]);
     setMenuOpenId(null);
-    if (
-      latestProjectId &&
-      selectedSet.has(latestProjectId) &&
-      tableView === "new"
-    ) {
-      setTableView("all");
-      setLatestProjectId(null);
-    }
+    setError(null);
+    try {
+      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      const nextProjects = Array.isArray(data.projects)
+        ? sortProjectsNewestFirst(
+            data.projects
+              .filter(
+                (item): item is Partial<ProjectEntry> & { id: string } =>
+                  typeof item === "object" &&
+                  item !== null &&
+                  typeof (item as { id?: unknown }).id === "string",
+              )
+              .map(normalizeProject),
+          )
+        : projects.filter((project) => !selectedSet.has(project.id));
 
-    await saveProjects(nextProjects);
+      setProjects(nextProjects);
+      setSelectedIds([]);
+      if (
+        latestProjectId &&
+        selectedSet.has(latestProjectId) &&
+        tableView === "new"
+      ) {
+        setTableView("all");
+        setLatestProjectId(null);
+      }
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete projects.",
+      );
+    }
   }
 
   function toggleSelect(id: string) {
@@ -562,12 +585,35 @@ export function ProjectNamingPanel() {
         : tableView === "new" && latestProjectId
           ? projects.filter((project) => project.id === latestProjectId)
           : [];
-    if (qbFilter === "all") {
-      return base;
+    const qbFiltered =
+      qbFilter === "all"
+        ? base
+        : base.filter((project) => {
+            const isYes = project.qb?.trim().toLowerCase() === "yes";
+            return qbFilter === "yes" ? isYes : !isYes;
+          });
+    const q = query.trim().toLowerCase();
+    if (!q) {
+      return qbFiltered;
     }
-    return base.filter((project) => {
-      const isYes = project.qb?.trim().toLowerCase() === "yes";
-      return qbFilter === "yes" ? isYes : !isYes;
+    return qbFiltered.filter((project) => {
+      const haystack = [
+        project.projectName,
+        project.customer,
+        project.awardDate,
+        project.year,
+        project.no,
+        project.uniqueId,
+        project.fullName,
+        project.engineer,
+        project.pmName,
+        project.qb,
+        project.basecamp,
+        project.ats,
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
     });
   })();
 
@@ -652,6 +698,25 @@ export function ProjectNamingPanel() {
           Existing Project
         </button>
       </div>
+
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              ref={searchInputRef}
+              className="field-input"
+              type="search"
+              placeholder="UniqueID, name, customer, engineer, PM…"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="form-message error" role="alert">
@@ -740,11 +805,13 @@ export function ProjectNamingPanel() {
 
           {visibleProjects.length === 0 ? (
             <p className="table-empty">
-              {qbFilter === "yes"
-                ? "No projects with QB Yes."
-                : qbFilter === "no"
-                  ? "No projects with QB No."
-                  : "No projects to show."}
+              {query.trim()
+                ? "No projects match this search."
+                : qbFilter === "yes"
+                  ? "No projects with QB Yes."
+                  : qbFilter === "no"
+                    ? "No projects with QB No."
+                    : "No projects to show."}
             </p>
           ) : (
             <>

@@ -6,12 +6,17 @@ import {
   useMemo,
   useRef,
   useState,
+  Fragment,
 } from "react";
 import { createPortal } from "react-dom";
 import {
   normalizeCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
+import {
+  cascadeDeleteByUniqueIds,
+  confirmCascadeProjectDelete,
+} from "@/lib/cascade-delete-client";
 import {
   buildProjectExportRows,
   exportProjectsAsCsv,
@@ -295,6 +300,13 @@ export function ProjectsPanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [groupBy, setGroupBy] = useState<"none" | "client" | "projectName">(
+    "none",
+  );
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   /** UniqueID → engineer from Project Naming (source of truth for display). */
   const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
     Record<string, string>
@@ -999,10 +1011,38 @@ export function ProjectsPanel() {
           return false;
         }
       }
+      const q = searchQuery.trim().toLowerCase();
+      if (q) {
+        const haystack = [
+          row.displayId,
+          row.customer,
+          row.projectName,
+          row.projectInitializeDate,
+          engineerFromNaming(row),
+          pmNameFromNaming(row),
+          row.status,
+          row.invoiced,
+          row.recentActivity,
+          row.pmActionItems,
+          row.priority,
+          row.etaDays,
+          row.revisionHistory,
+          row.partialInvoiceHistory,
+          row.fullInvoicedDate,
+          row.pmComments,
+          row.finalSccsSent,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) {
+          return false;
+        }
+      }
       return true;
     });
   }, [
     rows,
+    searchQuery,
     selectedCustomerIds,
     selectedCustomerIdSet,
     selectedEngineerNames,
@@ -1867,10 +1907,382 @@ export function ProjectsPanel() {
   const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const isGrouped = groupBy !== "none";
+  const pageRows = isGrouped
+    ? filteredRows
+    : filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+
+  const groupedRows = useMemo(() => {
+    if (!isGrouped) {
+      return null;
+    }
+    const groups: { label: string; rows: ProjectDetailEntry[] }[] = [];
+    for (const row of filteredRows) {
+      const label =
+        groupBy === "client"
+          ? row.customer.trim() || "Unknown"
+          : row.projectName.trim() || "Unknown";
+      const existing = groups.find((group) => group.label === label);
+      if (existing) {
+        existing.rows.push(row);
+      } else {
+        groups.push({ label, rows: [row] });
+      }
+    }
+    groups.sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
+    );
+    return groups;
+  }, [filteredRows, groupBy, isGrouped]);
+
+  function toggleGroupExpanded(label: string) {
+    setExpandedGroups((current) =>
+      current.includes(label)
+        ? current.filter((item) => item !== label)
+        : [...current, label],
+    );
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
+
+  function toggleSelectAllVisible(visible: ProjectDetailEntry[]) {
+    const visibleIds = visible.map((row) => row.id);
+    const allSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((current) =>
+        current.filter((id) => !visibleIds.includes(id)),
+      );
+      return;
+    }
+    setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
+  }
+
+  const allVisibleSelected =
+    pageRows.length > 0 &&
+    pageRows.every((row) => selectedIds.includes(row.id));
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedIds);
+    const uniqueIds = rows
+      .filter((row) => selectedSet.has(row.id))
+      .map((row) => row.displayId);
+
+    setError(null);
+    try {
+      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      if (Array.isArray(data.projectDetails)) {
+        setRows(
+          data.projectDetails.filter(
+            (item): item is ProjectDetailEntry =>
+              typeof item === "object" &&
+              item !== null &&
+              typeof (item as { id?: unknown }).id === "string",
+          ) as ProjectDetailEntry[],
+        );
+        persistedRowsRef.current = data.projectDetails as ProjectDetailEntry[];
+      } else {
+        const next = rows.filter((row) => !selectedSet.has(row.id));
+        setRows(next);
+        persistedRowsRef.current = next;
+      }
+      setSelectedIds([]);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete projects.",
+      );
+    }
+  }
+
+  function renderActiveProjectRow(row: ProjectDetailEntry) {
+    const stickyStyle = stickyCustomerStyle(row);
+    const isSelected = selectedIds.includes(row.id);
+    return (
+
+                    <tr
+                      key={row.id}
+                      className={isSelected ? "row-selected" : undefined}
+                    >
+                      <td
+                        className="col-sticky col-sticky-check"
+                        style={stickyStyle}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(row.id)}
+                          aria-label={`Select ${row.projectName || row.displayId}`}
+                        />
+                      </td>
+                      <td
+                        className="col-sticky col-sticky-1"
+                        style={stickyStyle}
+                      >
+                        {cell(row.displayId)}
+                      </td>
+                      <td
+                        className="col-sticky col-sticky-2"
+                        style={stickyStyle}
+                      >
+                        {cell(row.customer)}
+                      </td>
+                      <td
+                        className="col-sticky col-sticky-3"
+                        style={stickyStyle}
+                      >
+                        {cell(row.projectName)}
+                      </td>
+                      <td>
+                        {row.projectInitializeDate.trim()
+                          ? formatDateLabel(row.projectInitializeDate)
+                          : "—"}
+                      </td>
+                      <td>{cell(engineerFromNaming(row))}</td>
+                      <td>{cell(pmNameFromNaming(row))}</td>
+                      <td>
+                        <select
+                          className="field-input field-select table-select table-select--status"
+                          value={row.status}
+                          disabled={
+                            savingKey === savingKeyFor(row.id, "status")
+                          }
+                          aria-label={`Status for ${row.projectName || row.displayId}`}
+                          onChange={(event) => {
+                            const nextStatus = event.target.value;
+                            if (nextStatus === row.status) {
+                              return;
+                            }
+                            if (!nextStatus.trim()) {
+                              void handleFieldChange(row.id, "status", "");
+                              return;
+                            }
+                            openStatusPmActionPrompt(row, nextStatus);
+                          }}
+                        >
+                          <option value="">Select status</option>
+                          {statusOptions.map((status) => (
+                            <option key={status} value={status}>
+                              {status}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <select
+                          className="field-input field-select table-select"
+                          value={
+                            isFullyInvoiced(row) ? "FULL" : row.invoiced
+                          }
+                          disabled={
+                            isFullyInvoiced(row) ||
+                            savingKey === savingKeyFor(row.id, "invoiced")
+                          }
+                          title={
+                            isFullyInvoiced(row)
+                              ? "Fully invoiced (100%) — locked"
+                              : undefined
+                          }
+                          aria-label={`Invoiced for ${row.projectName || row.displayId}`}
+                          onChange={(event) =>
+                            void handleInvoicedChange(row, event.target.value)
+                          }
+                        >
+                          <option value="">Select invoiced</option>
+                          {invoicedOptions.map((invoiced) => (
+                            <option key={invoiced} value={invoiced}>
+                              {invoiced}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "recentActivity",
+                          "Recent activity",
+                        )}
+                      </td>
+                      <td>
+                        {renderDateInput(
+                          row,
+                          "recentActivityDate",
+                          "Recent activity date",
+                        )}
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "pmActionItems",
+                          "Pm action items",
+                        )}
+                      </td>
+                      <td>
+                        {renderDateInput(
+                          row,
+                          "pmActionItemsDate",
+                          "Pm action items date",
+                        )}
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "lastEmailReceivedClient",
+                          "Last email received",
+                        )}
+                      </td>
+                      <td>
+                        {renderDateInput(
+                          row,
+                          "lastEmailReceivedDate",
+                          "Client mail date",
+                        )}
+                      </td>
+                      <td className="table-complete-cell">
+                        <input
+                          type="checkbox"
+                          className="table-complete-checkbox"
+                          checked={
+                            completeConfirm?.rowId === row.id ||
+                            completingId === row.id
+                          }
+                          disabled={completingId === row.id}
+                          aria-label={`Project completed for ${row.projectName || row.displayId}`}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              requestCompleteProject(row);
+                            }
+                          }}
+                        />
+                      </td>
+                      <td>
+                        <select
+                          className="field-input field-select table-select"
+                          value={row.priority}
+                          disabled={
+                            savingKey === savingKeyFor(row.id, "priority")
+                          }
+                          aria-label={`Priority for ${row.projectName || row.displayId}`}
+                          onChange={(event) =>
+                            void handleFieldChange(
+                              row.id,
+                              "priority",
+                              event.target.value,
+                            )
+                          }
+                        >
+                          <option value="">Select priority</option>
+                          {row.priority.trim() &&
+                          !priorityOptions.includes(row.priority.trim()) ? (
+                            <option value={row.priority.trim()}>
+                              {row.priority.trim()}
+                            </option>
+                          ) : null}
+                          {priorityOptions.map((priority) => (
+                            <option key={priority} value={priority}>
+                              {priority}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                      <td>
+                        <input
+                          className="field-input table-number-input"
+                          type="number"
+                          min={0}
+                          step={1}
+                          inputMode="numeric"
+                          value={row.etaDays}
+                          disabled={
+                            savingKey === savingKeyFor(row.id, "etaDays")
+                          }
+                          aria-label={`ETA days for ${row.projectName || row.displayId}`}
+                          placeholder="Days"
+                          onChange={(event) =>
+                            void handleFieldChange(
+                              row.id,
+                              "etaDays",
+                              event.target.value,
+                            )
+                          }
+                        />
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "revisionHistory",
+                          "Revision History",
+                        )}
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "partialInvoiceHistory",
+                          "Partial Invoicing Date",
+                        )}
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "fullInvoicedDate",
+                          "Full Invoiced Date",
+                        )}
+                      </td>
+                      <td>
+                        {renderMultilinePreview(
+                          row,
+                          "pmComments",
+                          "PM Comments",
+                        )}
+                      </td>
+                      <td>
+                        {renderDateInput(
+                          row,
+                          "finalSccsSent",
+                          "Final SCCS Sent",
+                        )}
+                      </td>
+                    </tr>
+                    );
+
+  }
 
   return (
     <section className="content-panel content-panel--actions">
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              ref={searchInputRef}
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, engineer, status…"
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+        </div>
+      ) : null}
+
       <div className="projects-filters-bar">
         <div className="projects-filters-left">
           <span className="projects-filters-label">Filters</span>
@@ -2401,6 +2813,34 @@ export function ProjectsPanel() {
         </div>
 
         <div className="projects-filters-right" ref={exportMenuRef}>
+          <label className="group-toggle">
+            <span>Group by</span>
+            <select
+              className="field-input field-select group-select"
+              value={groupBy}
+              disabled={!ready}
+              onChange={(event) => {
+                setGroupBy(
+                  event.target.value as "none" | "client" | "projectName",
+                );
+                setExpandedGroups([]);
+                setPage(1);
+              }}
+            >
+              <option value="none">None</option>
+              <option value="client">Client</option>
+              <option value="projectName">Project Name</option>
+            </select>
+          </label>
+          <button
+            type="button"
+            className="button danger"
+            disabled={!ready || selectedIds.length === 0}
+            onClick={() => void handleDeleteSelected()}
+          >
+            Delete
+            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+          </button>
           <button
             type="button"
             className="filter-chip-button projects-export-button"
@@ -2472,9 +2912,17 @@ export function ProjectsPanel() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="projects-table projects-table--wide">
+            <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
+                  <th className="col-sticky col-sticky-check">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={() => toggleSelectAllVisible(pageRows)}
+                      aria-label="Select all projects on this page"
+                    />
+                  </th>
                   {PROJECT_TABLE_HEADERS.map((header, index) => (
                     <th
                       key={`${header}-${index}`}
@@ -2491,7 +2939,7 @@ export function ProjectsPanel() {
                 {pageRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={PROJECT_TABLE_HEADERS.length}
+                      colSpan={PROJECT_TABLE_HEADERS.length + 1}
                       className="table-empty-cell"
                     >
                       {selectedCustomerIds.length > 0 ||
@@ -2499,252 +2947,53 @@ export function ProjectsPanel() {
                       selectedPmNames.length > 0 ||
                       selectedStatuses.length > 0 ||
                       selectedInvoiced.length > 0 ||
-                      selectedPriorities.length > 0
+                      selectedPriorities.length > 0 ||
+                      searchQuery.trim()
                         ? "No projects match the selected filters."
                         : "No projects yet. Create one from Project Naming."}
                     </td>
                   </tr>
                 ) : (
-                  pageRows.map((row) => {
-                    const stickyStyle = stickyCustomerStyle(row);
-                    return (
-                    <tr key={row.id}>
-                      <td
-                        className="col-sticky col-sticky-1"
-                        style={stickyStyle}
-                      >
-                        {cell(row.displayId)}
-                      </td>
-                      <td
-                        className="col-sticky col-sticky-2"
-                        style={stickyStyle}
-                      >
-                        {cell(row.customer)}
-                      </td>
-                      <td
-                        className="col-sticky col-sticky-3"
-                        style={stickyStyle}
-                      >
-                        {cell(row.projectName)}
-                      </td>
-                      <td>
-                        {row.projectInitializeDate.trim()
-                          ? formatDateLabel(row.projectInitializeDate)
-                          : "—"}
-                      </td>
-                      <td>{cell(engineerFromNaming(row))}</td>
-                      <td>{cell(pmNameFromNaming(row))}</td>
-                      <td>
-                        <select
-                          className="field-input field-select table-select table-select--status"
-                          value={row.status}
-                          disabled={
-                            savingKey === savingKeyFor(row.id, "status")
-                          }
-                          aria-label={`Status for ${row.projectName || row.displayId}`}
-                          onChange={(event) => {
-                            const nextStatus = event.target.value;
-                            if (nextStatus === row.status) {
-                              return;
-                            }
-                            if (!nextStatus.trim()) {
-                              void handleFieldChange(row.id, "status", "");
-                              return;
-                            }
-                            openStatusPmActionPrompt(row, nextStatus);
-                          }}
-                        >
-                          <option value="">Select status</option>
-                          {statusOptions.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <select
-                          className="field-input field-select table-select"
-                          value={
-                            isFullyInvoiced(row) ? "FULL" : row.invoiced
-                          }
-                          disabled={
-                            isFullyInvoiced(row) ||
-                            savingKey === savingKeyFor(row.id, "invoiced")
-                          }
-                          title={
-                            isFullyInvoiced(row)
-                              ? "Fully invoiced (100%) — locked"
-                              : undefined
-                          }
-                          aria-label={`Invoiced for ${row.projectName || row.displayId}`}
-                          onChange={(event) =>
-                            void handleInvoicedChange(row, event.target.value)
-                          }
-                        >
-                          <option value="">Select invoiced</option>
-                          {invoicedOptions.map((invoiced) => (
-                            <option key={invoiced} value={invoiced}>
-                              {invoiced}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "recentActivity",
-                          "Recent activity",
-                        )}
-                      </td>
-                      <td>
-                        {renderDateInput(
-                          row,
-                          "recentActivityDate",
-                          "Recent activity date",
-                        )}
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "pmActionItems",
-                          "Pm action items",
-                        )}
-                      </td>
-                      <td>
-                        {renderDateInput(
-                          row,
-                          "pmActionItemsDate",
-                          "Pm action items date",
-                        )}
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "lastEmailReceivedClient",
-                          "Last email received",
-                        )}
-                      </td>
-                      <td>
-                        {renderDateInput(
-                          row,
-                          "lastEmailReceivedDate",
-                          "Client mail date",
-                        )}
-                      </td>
-                      <td className="table-complete-cell">
-                        <input
-                          type="checkbox"
-                          className="table-complete-checkbox"
-                          checked={
-                            completeConfirm?.rowId === row.id ||
-                            completingId === row.id
-                          }
-                          disabled={completingId === row.id}
-                          aria-label={`Project completed for ${row.projectName || row.displayId}`}
-                          onChange={(event) => {
-                            if (event.target.checked) {
-                              requestCompleteProject(row);
-                            }
-                          }}
-                        />
-                      </td>
-                      <td>
-                        <select
-                          className="field-input field-select table-select"
-                          value={row.priority}
-                          disabled={
-                            savingKey === savingKeyFor(row.id, "priority")
-                          }
-                          aria-label={`Priority for ${row.projectName || row.displayId}`}
-                          onChange={(event) =>
-                            void handleFieldChange(
-                              row.id,
-                              "priority",
-                              event.target.value,
-                            )
-                          }
-                        >
-                          <option value="">Select priority</option>
-                          {row.priority.trim() &&
-                          !priorityOptions.includes(row.priority.trim()) ? (
-                            <option value={row.priority.trim()}>
-                              {row.priority.trim()}
-                            </option>
-                          ) : null}
-                          {priorityOptions.map((priority) => (
-                            <option key={priority} value={priority}>
-                              {priority}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          className="field-input table-number-input"
-                          type="number"
-                          min={0}
-                          step={1}
-                          inputMode="numeric"
-                          value={row.etaDays}
-                          disabled={
-                            savingKey === savingKeyFor(row.id, "etaDays")
-                          }
-                          aria-label={`ETA days for ${row.projectName || row.displayId}`}
-                          placeholder="Days"
-                          onChange={(event) =>
-                            void handleFieldChange(
-                              row.id,
-                              "etaDays",
-                              event.target.value,
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "revisionHistory",
-                          "Revision History",
-                        )}
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "partialInvoiceHistory",
-                          "Partial Invoicing Date",
-                        )}
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "fullInvoicedDate",
-                          "Full Invoiced Date",
-                        )}
-                      </td>
-                      <td>
-                        {renderMultilinePreview(
-                          row,
-                          "pmComments",
-                          "PM Comments",
-                        )}
-                      </td>
-                      <td>
-                        {renderDateInput(
-                          row,
-                          "finalSccsSent",
-                          "Final SCCS Sent",
-                        )}
-                      </td>
-                    </tr>
-                    );
-                  })
+                  groupedRows
+                    ? groupedRows.map((group) => {
+                        const isExpanded = expandedGroups.includes(group.label);
+                        return (
+                          <Fragment key={`group-${groupBy}-${group.label}`}>
+                            <tr className="group-row">
+                              <td colSpan={PROJECT_TABLE_HEADERS.length + 1}>
+                                <button
+                                  type="button"
+                                  className="group-row-toggle"
+                                  aria-expanded={isExpanded}
+                                  onClick={() => toggleGroupExpanded(group.label)}
+                                >
+                                  <span className="group-row-chevron" aria-hidden="true">
+                                    {isExpanded ? "▾" : "▸"}
+                                  </span>
+                                  <span className="group-row-label">
+                                    {groupBy === "client"
+                                      ? `Client: ${group.label}`
+                                      : `Project Name: ${group.label}`}
+                                    <span className="group-row-count">
+                                      {" "}({group.rows.length})
+                                    </span>
+                                  </span>
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded
+                              ? group.rows.map((row) => renderActiveProjectRow(row))
+                              : null}
+                          </Fragment>
+                        );
+                      })
+                    : pageRows.map((row) => renderActiveProjectRow(row))
                 )}
               </tbody>
             </table>
           </div>
 
-          {filteredRows.length > PAGE_SIZE ? (
+          {!isGrouped && filteredRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"

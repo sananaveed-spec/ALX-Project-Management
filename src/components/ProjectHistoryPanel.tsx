@@ -2,6 +2,10 @@
 
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  cascadeDeleteByUniqueIds,
+  confirmCascadeProjectDelete,
+} from "@/lib/cascade-delete-client";
 import { type ProjectDetailEntry } from "@/lib/project-details";
 import { type ProjectHistoryEntry } from "@/lib/project-history";
 
@@ -83,6 +87,7 @@ export function ProjectHistoryPanel() {
   const [logWizard, setLogWizard] = useState<LogWizard | null>(null);
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const titleId = useId();
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -160,6 +165,66 @@ export function ProjectHistoryPanel() {
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
+
+  function toggleSelectAllVisible(visible: ProjectHistoryEntry[]) {
+    const visibleIds = visible.map((row) => row.id);
+    const allSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((current) =>
+        current.filter((id) => !visibleIds.includes(id)),
+      );
+      return;
+    }
+    setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
+  }
+
+  const allVisibleSelected =
+    pageRows.length > 0 &&
+    pageRows.every((row) => selectedIds.includes(row.id));
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedIds);
+    const uniqueIds = rows
+      .filter((row) => selectedSet.has(row.id))
+      .map((row) => row.displayId);
+
+    setError(null);
+    try {
+      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      if (Array.isArray(data.history)) {
+        setRows(data.history as ProjectHistoryEntry[]);
+      } else {
+        setRows(rows.filter((row) => !selectedSet.has(row.id)));
+      }
+      if (Array.isArray(data.projectDetails)) {
+        setProjects(data.projectDetails as ProjectDetailEntry[]);
+      }
+      setSelectedIds([]);
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete projects.",
+      );
+    }
+  }
 
   const sortedProjects = useMemo(
     () =>
@@ -244,6 +309,15 @@ export function ProjectHistoryPanel() {
         >
           Log Action
         </button>
+        <button
+          type="button"
+          className="button danger"
+          disabled={!ready || selectedIds.length === 0}
+          onClick={() => void handleDeleteSelected()}
+        >
+          Delete
+          {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+        </button>
       </div>
 
       {error ? (
@@ -257,9 +331,17 @@ export function ProjectHistoryPanel() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="projects-table projects-table--wide">
+            <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
+                  <th className="col-sticky col-sticky-check">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={() => toggleSelectAllVisible(pageRows)}
+                      aria-label="Select all history rows on this page"
+                    />
+                  </th>
                   {TABLE_HEADERS.map((header, index) => (
                     <th
                       key={`${header}-${index}`}
@@ -278,7 +360,7 @@ export function ProjectHistoryPanel() {
                 {pageRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={TABLE_HEADERS.length}
+                      colSpan={TABLE_HEADERS.length + 1}
                       className="table-empty-cell"
                     >
                       {query.trim()
@@ -287,8 +369,21 @@ export function ProjectHistoryPanel() {
                     </td>
                   </tr>
                 ) : (
-                  pageRows.map((row) => (
-                    <tr key={row.id}>
+                  pageRows.map((row) => {
+                    const isSelected = selectedIds.includes(row.id);
+                    return (
+                    <tr
+                      key={row.id}
+                      className={isSelected ? "row-selected" : undefined}
+                    >
+                      <td className="col-sticky col-sticky-check">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(row.id)}
+                          aria-label={`Select ${row.projectName || row.displayId}`}
+                        />
+                      </td>
                       <td className="col-sticky col-sticky-1">
                         {cell(row.displayId)}
                       </td>
@@ -326,7 +421,8 @@ export function ProjectHistoryPanel() {
                       </td>
                       <td>{formatDateLabel(row.lastEmailReceivedDate)}</td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

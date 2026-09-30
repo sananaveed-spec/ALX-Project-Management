@@ -359,20 +359,6 @@ export function CustomerNamePanel() {
         <button
           type="button"
           className="action-button"
-          onClick={() => {
-            setTableView("all");
-            setSelectedIds([]);
-            setMenuOpenId(null);
-            setPage(1);
-            window.setTimeout(() => searchInputRef.current?.focus(), 0);
-          }}
-          disabled={!ready}
-        >
-          Search
-        </button>
-        <button
-          type="button"
-          className="action-button"
           onClick={() => setIsNewCustomerOpen(true)}
           disabled={!ready}
         >

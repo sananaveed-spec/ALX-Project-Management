@@ -919,6 +919,11 @@ h2,
   flex: 0 0 auto;
   z-index: 31;
   overflow: visible;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .projects-filters-label {
@@ -1310,6 +1315,28 @@ button.suggestion-link {
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: 6px 0 10px -6px rgba(0, 0, 0, 0.55);
+}
+
+.projects-table--wide.projects-table--with-check .col-sticky-check {
+  left: 0;
+  width: 2.5rem;
+  min-width: 2.5rem;
+  max-width: 2.5rem;
+  text-align: center;
+  padding-left: 0.4rem;
+  padding-right: 0.4rem;
+}
+
+.projects-table--wide.projects-table--with-check .col-sticky-1 {
+  left: 2.5rem;
+}
+
+.projects-table--wide.projects-table--with-check .col-sticky-2 {
+  left: 9.25rem;
+}
+
+.projects-table--wide.projects-table--with-check .col-sticky-3 {
+  left: 14.75rem;
 }
 
 .table-empty-cell {
