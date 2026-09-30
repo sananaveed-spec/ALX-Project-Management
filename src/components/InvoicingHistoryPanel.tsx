@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   filterInvoicingHistoryRows,
   partialInvoicesDisplay,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 
 const PAGE_SIZE = 50;
 
@@ -22,11 +27,31 @@ function cell(value: string) {
   return value.trim() ? value : "—";
 }
 
+function matchesInvoicingQuery(row: ProjectDetailEntry, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  const haystack = [
+    row.displayId,
+    row.customer,
+    row.projectName,
+    row.status,
+    partialInvoicesDisplay(row),
+    row.fullInvoicedDate,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
 export function InvoicingHistoryPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
 
   useEffect(() => {
     let cancelled = false;
@@ -67,13 +92,51 @@ export function InvoicingHistoryPanel() {
     };
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((row) => matchesInvoicingQuery(row, query));
+    return sortByListSort(filtered, sort, (row) => row.displayId);
+  }, [rows, query, sort]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <section className="content-panel content-panel--actions">
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, status…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as ListSort)}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="form-message error" role="alert">
           {error}
@@ -109,8 +172,9 @@ export function InvoicingHistoryPanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No PARTIAL or FULL invoices yet. Mark invoiced from Ready
-                      to Invoice or set Invoiced on Projects.
+                      {query.trim()
+                        ? "No invoicing rows match this search."
+                        : "No PARTIAL or FULL invoiced projects yet."}
                     </td>
                   </tr>
                 ) : (
@@ -125,7 +189,7 @@ export function InvoicingHistoryPanel() {
                       <td className="col-sticky col-sticky-3">
                         {cell(row.projectName)}
                       </td>
-                      <td>{cell(row.invoiced)}</td>
+                      <td>{cell(row.status)}</td>
                       <td>
                         <span className="table-preview-text">
                           {cell(partialInvoicesDisplay(row))}
@@ -143,7 +207,7 @@ export function InvoicingHistoryPanel() {
             </table>
           </div>
 
-          {rows.length > PAGE_SIZE ? (
+          {visibleRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -157,8 +221,8 @@ export function InvoicingHistoryPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, rows.length)} of{" "}
-                  {rows.length})
+                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {visibleRows.length})
                 </span>
               </span>
               <button

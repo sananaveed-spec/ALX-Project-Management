@@ -6,6 +6,11 @@ import {
   cascadeDeleteByUniqueIds,
   confirmCascadeProjectDelete,
 } from "@/lib/cascade-delete-client";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
 import { type ProjectHistoryEntry } from "@/lib/project-history";
 
@@ -83,6 +88,7 @@ export function ProjectHistoryPanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
   const [page, setPage] = useState(1);
   const [logWizard, setLogWizard] = useState<LogWizard | null>(null);
   const [saving, setSaving] = useState(false);
@@ -152,14 +158,14 @@ export function ProjectHistoryPanel() {
     return () => window.clearTimeout(timer);
   }, [logWizard]);
 
-  const filtered = useMemo(
-    () => rows.filter((row) => matchesQuery(row, query)),
-    [rows, query],
-  );
+  const filtered = useMemo(() => {
+    const matched = rows.filter((row) => matchesQuery(row, query));
+    return sortByListSort(matched, sort, (row) => row.displayId);
+  }, [rows, query, sort]);
 
   useEffect(() => {
     setPage(1);
-  }, [query]);
+  }, [query, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -295,6 +301,20 @@ export function ProjectHistoryPanel() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
+        </label>
+        <label className="field customer-sort-field">
+          <span className="field-label">Sort</span>
+          <select
+            className="field-input"
+            value={sort}
+            onChange={(event) => setSort(event.target.value as ListSort)}
+          >
+            {LIST_SORT_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
         </label>
         <button
           type="button"

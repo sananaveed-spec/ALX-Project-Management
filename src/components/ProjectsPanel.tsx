@@ -18,6 +18,11 @@ import {
   confirmCascadeProjectDelete,
 } from "@/lib/cascade-delete-client";
 import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
+import {
   buildProjectExportRows,
   exportProjectsAsCsv,
   exportProjectsAsExcel,
@@ -306,6 +311,7 @@ export function ProjectsPanel() {
   );
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   /** UniqueID → engineer from Project Naming (source of truth for display). */
   const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
@@ -1059,6 +1065,12 @@ export function ProjectsPanel() {
     namingPmByUniqueId,
   ]);
 
+  const sortedFilteredRows = useMemo(
+    () =>
+      sortByListSort(filteredRows, sort, (row) => row.displayId),
+    [filteredRows, sort],
+  );
+
   useEffect(() => {
     setPage(1);
   }, [
@@ -1392,7 +1404,7 @@ export function ProjectsPanel() {
     setExportError(null);
     try {
       const exportRows = buildProjectExportRows(
-        filteredRows,
+        sortedFilteredRows,
         engineerFromNaming,
         pmNameFromNaming,
       );
@@ -1904,20 +1916,20 @@ export function ProjectsPanel() {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const isGrouped = groupBy !== "none";
   const pageRows = isGrouped
-    ? filteredRows
-    : filteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+    ? sortedFilteredRows
+    : sortedFilteredRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   const groupedRows = useMemo(() => {
     if (!isGrouped) {
       return null;
     }
     const groups: { label: string; rows: ProjectDetailEntry[] }[] = [];
-    for (const row of filteredRows) {
+    for (const row of sortedFilteredRows) {
       const label =
         groupBy === "client"
           ? row.customer.trim() || "Unknown"
@@ -1933,7 +1945,7 @@ export function ProjectsPanel() {
       a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
     return groups;
-  }, [filteredRows, groupBy, isGrouped]);
+  }, [sortedFilteredRows, groupBy, isGrouped]);
 
   function toggleGroupExpanded(label: string) {
     setExpandedGroups((current) =>
@@ -2279,6 +2291,23 @@ export function ProjectsPanel() {
                 setPage(1);
               }}
             />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => {
+                setSort(event.target.value as ListSort);
+                setPage(1);
+              }}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
       ) : null}
@@ -2993,7 +3022,7 @@ export function ProjectsPanel() {
             </table>
           </div>
 
-          {!isGrouped && filteredRows.length > PAGE_SIZE ? (
+          {!isGrouped && sortedFilteredRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -3008,8 +3037,8 @@ export function ProjectsPanel() {
                 <span className="pagination-range">
                   {" "}
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, filteredRows.length)} of{" "}
-                  {filteredRows.length})
+                  {Math.min(pageStart + PAGE_SIZE, sortedFilteredRows.length)} of{" "}
+                  {sortedFilteredRows.length})
                 </span>
               </span>
               <button

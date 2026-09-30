@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 import {
   appendPartialInvoiceHistory,
   formatFullInvoiceNote,
@@ -115,6 +120,8 @@ export function ReadyToInvoicePanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [invoicingId, setInvoicingId] = useState<string | null>(null);
   const [multilineEditor, setMultilineEditor] =
@@ -207,9 +214,34 @@ export function ReadyToInvoicePanel() {
     }
   }, [invoiceWizard]);
 
-  const visibleRows = rows.filter(
-    (row) => isReadyToInvoice(row.invoiced) && !isFullyInvoiced(row),
-  );
+  const visibleRows = useMemo(() => {
+    const base = rows.filter(
+      (row) => isReadyToInvoice(row.invoiced) && !isFullyInvoiced(row),
+    );
+    const q = query.trim().toLowerCase();
+    const filtered = !q
+      ? base
+      : base.filter((row) => {
+          const haystack = [
+            row.displayId,
+            row.customer,
+            row.projectName,
+            row.projectInitializeDate,
+            row.engineer,
+            row.status,
+            row.partialInvoiceHistory,
+            row.pmComments,
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+    return sortByListSort(filtered, sort, (row) => row.displayId);
+  }, [rows, query, sort]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort]);
 
   async function persistRow(
     rowId: string,
@@ -535,6 +567,34 @@ export function ReadyToInvoicePanel() {
 
   return (
     <section className="content-panel content-panel--actions">
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, engineer…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as ListSort)}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
 
       {error ? (
         <p className="form-message error" role="alert">
@@ -571,8 +631,9 @@ export function ReadyToInvoicePanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No projects ready to invoice yet. On the Projects tab, set
-                      Invoiced to READY TO INVOICE.
+                      {query.trim()
+                        ? "No projects match this search."
+                        : "No projects ready to invoice yet. On the Projects tab, set Invoiced to READY TO INVOICE."}
                     </td>
                   </tr>
                 ) : (

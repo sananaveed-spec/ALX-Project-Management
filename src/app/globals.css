@@ -1276,6 +1276,32 @@ button.suggestion-link {
   white-space: nowrap;
 }
 
+.projects-table--wide .col-text-narrow {
+  width: 11rem;
+  min-width: 11rem;
+  max-width: 11rem;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.projects-table--wide .col-text-reminder {
+  width: 15rem;
+  min-width: 15rem;
+  max-width: 15rem;
+  white-space: normal;
+  vertical-align: top;
+}
+
+.projects-table--wide .col-text-narrow .table-preview-text,
+.projects-table--wide .col-text-reminder .table-preview-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .projects-table--wide .col-sticky {
   position: sticky;
   background: #12201a;

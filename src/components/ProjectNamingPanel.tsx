@@ -17,6 +17,11 @@ import {
   cascadeDeleteByUniqueIds,
   confirmCascadeProjectDelete,
 } from "@/lib/cascade-delete-client";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 import { getUniqueIdConflict, normalizeProject, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
 
 type TableView = "new" | "all";
@@ -111,6 +116,7 @@ export function ProjectNamingPanel() {
   const [qbFilter, setQbFilter] = useState<"all" | "yes" | "no">("all");
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
   const menuRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -593,28 +599,28 @@ export function ProjectNamingPanel() {
             return qbFilter === "yes" ? isYes : !isYes;
           });
     const q = query.trim().toLowerCase();
-    if (!q) {
-      return qbFiltered;
-    }
-    return qbFiltered.filter((project) => {
-      const haystack = [
-        project.projectName,
-        project.customer,
-        project.awardDate,
-        project.year,
-        project.no,
-        project.uniqueId,
-        project.fullName,
-        project.engineer,
-        project.pmName,
-        project.qb,
-        project.basecamp,
-        project.ats,
-      ]
-        .join(" ")
-        .toLowerCase();
-      return haystack.includes(q);
-    });
+    const filtered = !q
+      ? qbFiltered
+      : qbFiltered.filter((project) => {
+          const haystack = [
+            project.projectName,
+            project.customer,
+            project.awardDate,
+            project.year,
+            project.no,
+            project.uniqueId,
+            project.fullName,
+            project.engineer,
+            project.pmName,
+            project.qb,
+            project.basecamp,
+            project.ats,
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+    return sortByListSort(filtered, sort, (project) => project.uniqueId);
   })();
 
   const isGrouped = tableView === "all" && groupBy !== "none";
@@ -714,6 +720,23 @@ export function ProjectNamingPanel() {
                 setPage(1);
               }}
             />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => {
+                setSort(event.target.value as ListSort);
+                setPage(1);
+              }}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
         </div>
       ) : null}

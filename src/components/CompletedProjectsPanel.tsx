@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   cascadeDeleteByUniqueIds,
   confirmCascadeProjectDelete,
@@ -9,6 +9,11 @@ import {
   sortCompletedProjectsNewestFirst,
   type CompletedProjectEntry,
 } from "@/lib/completed-projects";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 
 const PAGE_SIZE = 50;
 
@@ -44,12 +49,36 @@ function formatDateLabel(value: string) {
   return `${month}/${day}/${year}`;
 }
 
+function matchesCompletedQuery(row: CompletedProjectEntry, query: string) {
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return true;
+  }
+  const haystack = [
+    row.displayId,
+    row.customer,
+    row.projectName,
+    row.engineer,
+    row.projectHistory,
+    row.partialInvoiceDate,
+    row.invoicedDate,
+    row.finalReportSentOn,
+    row.projectCompleted,
+    row.labelsShipped,
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(q);
+}
+
 export function CompletedProjectsPanel() {
   const [rows, setRows] = useState<CompletedProjectEntry[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
 
   useEffect(() => {
     let cancelled = false;
@@ -92,10 +121,19 @@ export function CompletedProjectsPanel() {
     };
   }, []);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const visibleRows = useMemo(() => {
+    const filtered = rows.filter((row) => matchesCompletedQuery(row, query));
+    return sortByListSort(filtered, sort, (row) => row.displayId);
+  }, [rows, query, sort]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   function toggleSelect(id: string) {
     setSelectedIds((current) =>
@@ -158,6 +196,35 @@ export function CompletedProjectsPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, engineer…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as ListSort)}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="form-message error" role="alert">
           {error}
@@ -213,8 +280,9 @@ export function CompletedProjectsPanel() {
                       colSpan={TABLE_HEADERS.length + 1}
                       className="table-empty-cell"
                     >
-                      No completed projects yet. Mark Project Completed on the
-                      Active Projects tab.
+                      {query.trim()
+                        ? "No completed projects match this search."
+                        : "No completed projects yet. Mark Project Completed on the Active Projects tab."}
                     </td>
                   </tr>
                 ) : (
@@ -262,7 +330,7 @@ export function CompletedProjectsPanel() {
             </table>
           </div>
 
-          {rows.length > PAGE_SIZE ? (
+          {visibleRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -276,8 +344,8 @@ export function CompletedProjectsPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, rows.length)} of{" "}
-                  {rows.length})
+                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {visibleRows.length})
                 </span>
               </span>
               <button

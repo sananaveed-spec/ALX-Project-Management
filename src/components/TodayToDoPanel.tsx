@@ -1,7 +1,12 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  LIST_SORT_OPTIONS,
+  sortByListSort,
+  type ListSort,
+} from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
 import { filterTodayToDoRows } from "@/lib/project-history";
 
@@ -64,6 +69,8 @@ export function TodayToDoPanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<ListSort>("name");
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
@@ -216,13 +223,68 @@ export function TodayToDoPanel() {
     }
   }
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const visibleRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const filtered = !q
+      ? rows
+      : rows.filter((row) => {
+          const haystack = [
+            row.displayId,
+            row.customer,
+            row.projectName,
+            row.engineer,
+            row.status,
+            row.invoiced,
+            row.pmActionItems,
+            row.recentActivity,
+          ]
+            .join(" ")
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+    return sortByListSort(filtered, sort, (row) => row.displayId);
+  }, [rows, query, sort]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query, sort]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
   const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = rows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
 
   return (
     <section className="content-panel content-panel--actions">
+      {ready ? (
+        <div className="table-toolbar customer-toolbar">
+          <label className="field history-search-field">
+            <span className="field-label">Search</span>
+            <input
+              className="field-input"
+              type="search"
+              placeholder="ID, project name, reminder, engineer…"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="field-label">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              onChange={(event) => setSort(event.target.value as ListSort)}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {error ? (
         <p className="form-message error" role="alert">
           {error}
@@ -238,7 +300,19 @@ export function TodayToDoPanel() {
               <thead>
                 <tr>
                   {TABLE_HEADERS.map((header) => (
-                    <th key={header}>{header}</th>
+                    <th
+                      key={header}
+                      className={
+                        header === "REMINDER"
+                          ? "col-text-reminder"
+                          : header === "PROJECT NAME" ||
+                              header === "RECENT ACTIVITY"
+                            ? "col-text-narrow"
+                            : undefined
+                      }
+                    >
+                      {header}
+                    </th>
                   ))}
                 </tr>
               </thead>
@@ -249,8 +323,9 @@ export function TodayToDoPanel() {
                       colSpan={TABLE_HEADERS.length}
                       className="table-empty-cell"
                     >
-                      No due reminders. Set PM Action Items Date on Projects to
-                      today or earlier.
+                      {query.trim()
+                        ? "No reminders match this search."
+                        : "No due reminders. Set PM Action Items Date on Projects to today or earlier."}
                     </td>
                   </tr>
                 ) : (
@@ -320,17 +395,21 @@ export function TodayToDoPanel() {
                             }}
                           />
                         </td>
-                        <td>
+                        <td className="col-text-reminder">
                           <span className="table-preview-text">
                             {cell(row.pmActionItems)}
                           </span>
                         </td>
                         <td>{formatDateLabel(row.pmActionItemsDate)}</td>
-                        <td>{cell(row.projectName)}</td>
+                        <td className="col-text-narrow">
+                          <span className="table-preview-text">
+                            {cell(row.projectName)}
+                          </span>
+                        </td>
                         <td>{cell(row.engineer)}</td>
                         <td>{cell(row.status)}</td>
                         <td>{cell(row.invoiced)}</td>
-                        <td>
+                        <td className="col-text-narrow">
                           <span className="table-preview-text">
                             {cell(row.recentActivity)}
                           </span>
@@ -344,7 +423,7 @@ export function TodayToDoPanel() {
             </table>
           </div>
 
-          {rows.length > PAGE_SIZE ? (
+          {visibleRows.length > PAGE_SIZE ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -358,8 +437,8 @@ export function TodayToDoPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, rows.length)} of{" "}
-                  {rows.length})
+                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {visibleRows.length})
                 </span>
               </span>
               <button
