@@ -18,7 +18,7 @@ export type DashboardTab =
 const NAV_ITEMS: { id: DashboardTab; label: string }[] = [
   { id: "naming", label: "Project Naming" },
   { id: "customers", label: "Customer Name" },
-  { id: "details", label: "Projects" },
+  { id: "details", label: "Active Projects" },
   { id: "readyToInvoice", label: "Ready to Invoice" },
   { id: "todayToDo", label: "Today To-Do List" },
   { id: "projectHistory", label: "Project History" },

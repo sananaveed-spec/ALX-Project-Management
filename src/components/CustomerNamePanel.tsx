@@ -5,7 +5,12 @@ import {
   NewCustomerDialog,
   type NewCustomerFormValues,
 } from "@/components/NewCustomerDialog";
-import type { CustomerEntry } from "@/lib/customers";
+import {
+  ensureCustomerColors,
+  findCustomerColorConflict,
+  normalizeCustomerColor,
+  type CustomerEntry,
+} from "@/lib/customers";
 
 type TableView = "new" | "all";
 type CustomerSort = "name" | "id" | "newest";
@@ -30,6 +35,7 @@ function matchesCustomerQuery(customer: CustomerEntry, query: string) {
     customer.pocEmail,
     customer.billToAddress,
     customer.apNumber,
+    customer.color,
   ]
     .join(" ")
     .toLowerCase();
@@ -121,9 +127,26 @@ export function CustomerNamePanel() {
         const data = (await response.json()) as {
           customers?: CustomerEntry[];
         };
-        if (!cancelled) {
-          setCustomers(data.customers ?? []);
-          setError(null);
+        if (cancelled) {
+          return;
+        }
+
+        const ensured = ensureCustomerColors(data.customers ?? []);
+        setCustomers(ensured.customers);
+        setError(null);
+
+        if (ensured.changed) {
+          try {
+            await persistCustomers(ensured.customers);
+          } catch (saveError) {
+            if (!cancelled) {
+              setError(
+                saveError instanceof Error
+                  ? saveError.message
+                  : "Assigned colors but failed to save them.",
+              );
+            }
+          }
         }
       } catch (loadError) {
         if (!cancelled) {
@@ -175,30 +198,54 @@ export function CustomerNamePanel() {
   }
 
   async function handleSaveCustomer(values: NewCustomerFormValues) {
+    const color = normalizeCustomerColor(values.color);
+    const conflict = findCustomerColorConflict(customers, color);
+    if (conflict) {
+      setError(
+        `Color ${color} is already used by ${conflict.customerId || conflict.customerName}.`,
+      );
+      return false;
+    }
+
     const id = `${Date.now()}-${customers.length}`;
-    const nextCustomer: CustomerEntry = { ...values, id };
+    const nextCustomer: CustomerEntry = { ...values, color, id };
     const nextCustomers = [...customers, nextCustomer];
 
     setLatestCustomerId(id);
     setTableView("new");
     setSelectedIds([]);
     await saveCustomers(nextCustomers);
+    return true;
   }
 
   async function handleEditCustomer(values: NewCustomerFormValues) {
     if (!editingCustomer) {
-      return;
+      return false;
+    }
+
+    const color = normalizeCustomerColor(values.color);
+    const conflict = findCustomerColorConflict(
+      customers,
+      color,
+      editingCustomer.id,
+    );
+    if (conflict) {
+      setError(
+        `Color ${color} is already used by ${conflict.customerId || conflict.customerName}.`,
+      );
+      return false;
     }
 
     const nextCustomers = customers.map((customer) =>
       customer.id === editingCustomer.id
-        ? { ...customer, ...values }
+        ? { ...customer, ...values, color }
         : customer,
     );
 
     setEditingCustomer(null);
     setMenuOpenId(null);
     await saveCustomers(nextCustomers);
+    return true;
   }
 
   async function handleDeleteSelected() {
@@ -399,6 +446,7 @@ export function CustomerNamePanel() {
                   </th>
                   <th>Customer ID</th>
                   <th>Customer Name</th>
+                  <th>Color</th>
                   <th>AP Email</th>
                   <th>POC Name</th>
                   <th>POC Email</th>
@@ -410,7 +458,7 @@ export function CustomerNamePanel() {
               <tbody>
                 {pageCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="table-empty-cell">
+                    <td colSpan={10} className="table-empty-cell">
                       {query.trim()
                         ? "No customers match this search."
                         : "No customers to show."}
@@ -436,6 +484,22 @@ export function CustomerNamePanel() {
                         </td>
                         <td>{customer.customerId}</td>
                         <td>{customer.customerName}</td>
+                        <td>
+                          <span className="customer-color-cell">
+                            <span
+                              className="customer-color-swatch"
+                              style={{
+                                backgroundColor:
+                                  customer.color || "transparent",
+                              }}
+                              title={customer.color || "No color"}
+                              aria-label={`Color ${customer.color || "none"}`}
+                            />
+                            <span className="customer-color-hex">
+                              {customer.color || "—"}
+                            </span>
+                          </span>
+                        </td>
                         <td>{customer.email}</td>
                         <td>{customer.pocName}</td>
                         <td>{customer.pocEmail}</td>
@@ -526,6 +590,7 @@ export function CustomerNamePanel() {
         onClose={() => setIsNewCustomerOpen(false)}
         onSubmit={handleSaveCustomer}
         mode="create"
+        reservedColors={customers.map((customer) => customer.color)}
       />
 
       <NewCustomerDialog
@@ -533,6 +598,9 @@ export function CustomerNamePanel() {
         onClose={() => setEditingCustomer(null)}
         onSubmit={handleEditCustomer}
         mode="edit"
+        reservedColors={customers
+          .filter((customer) => customer.id !== editingCustomer?.id)
+          .map((customer) => customer.color)}
         initialValues={
           editingCustomer
             ? {
@@ -543,6 +611,7 @@ export function CustomerNamePanel() {
                 pocEmail: editingCustomer.pocEmail,
                 billToAddress: editingCustomer.billToAddress,
                 apNumber: editingCustomer.apNumber,
+                color: editingCustomer.color,
               }
             : null
         }

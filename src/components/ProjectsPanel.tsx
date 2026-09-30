@@ -8,7 +8,10 @@ import {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
-import type { CustomerEntry } from "@/lib/customers";
+import {
+  normalizeCustomerColor,
+  type CustomerEntry,
+} from "@/lib/customers";
 import {
   buildProjectExportRows,
   exportProjectsAsCsv,
@@ -83,10 +86,10 @@ const PROJECT_INVOICED_OPTIONS = [
 ] as const;
 
 const PROJECT_PRIORITY_OPTIONS = [
-  "Very High",
-  "High",
-  "Medium",
-  "Low",
+  "Normal",
+  "Critical",
+  "Emergency",
+  "High Risk",
 ] as const;
 
 const PROJECT_TABLE_HEADERS = [
@@ -212,10 +215,27 @@ function isPreliminaryReportSentStatus(status: string) {
   );
 }
 
+function isRfiSentStatus(status: string) {
+  return /RFI[\s-]?\d*\s*sent/i.test(status.trim().replace(/\s+/g, " "));
+}
+
 function addDaysIso(days: number, from = new Date()) {
   const date = new Date(from);
   date.setDate(date.getDate() + days);
   return todayIsoInLosAngeles(date);
+}
+
+/** Dark/light text for readable sticky cells on a customer color. */
+function contrastTextForColor(hex: string) {
+  const color = normalizeCustomerColor(hex);
+  if (!color) {
+    return undefined;
+  }
+  const r = Number.parseInt(color.slice(1, 3), 16);
+  const g = Number.parseInt(color.slice(3, 5), 16);
+  const b = Number.parseInt(color.slice(5, 7), 16);
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance > 0.55 ? "#0b1210" : "#f4f7f5";
 }
 
 function matchesCustomerFilter(customer: CustomerEntry, query: string) {
@@ -754,6 +774,7 @@ export function ProjectsPanel() {
           pocEmail: "",
           billToAddress: "",
           apNumber: "",
+          color: "",
         });
       }
     }
@@ -763,6 +784,29 @@ export function ProjectsPanel() {
       }),
     );
   }, [customers, rows]);
+
+  const customerColorById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const customer of customers) {
+      const id = customer.customerId.trim().toLowerCase();
+      const color = normalizeCustomerColor(customer.color);
+      if (id && color) {
+        map.set(id, color);
+      }
+    }
+    return map;
+  }, [customers]);
+
+  function stickyCustomerStyle(row: ProjectDetailEntry) {
+    const color = customerColorById.get(row.customer.trim().toLowerCase());
+    if (!color) {
+      return undefined;
+    }
+    return {
+      backgroundColor: color,
+      color: contrastTextForColor(color),
+    } as const;
+  }
 
   const customerMatches = useMemo(
     () =>
@@ -893,17 +937,10 @@ export function ProjectsPanel() {
       selectedInvoicedSet.has(invoiced.toLowerCase()),
     );
 
-  const priorityOptions = useMemo(() => {
-    const options = new Set<string>(PROJECT_PRIORITY_OPTIONS);
-    for (const row of rows) {
-      if (row.priority.trim()) {
-        options.add(row.priority.trim());
-      }
-    }
-    return [...options].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
-  }, [rows]);
+  const priorityOptions = useMemo(
+    () => [...PROJECT_PRIORITY_OPTIONS],
+    [],
+  );
 
   const priorityMatches = useMemo(
     () =>
@@ -1371,7 +1408,9 @@ export function ProjectsPanel() {
 
   function openStatusPmActionPrompt(row: ProjectDetailEntry, nextStatus: string) {
     const reminder = reminderFieldsForStatus(nextStatus);
-    const showFollowUpDays = isPreliminaryReportSentStatus(nextStatus);
+    const showFollowUpDays =
+      isPreliminaryReportSentStatus(nextStatus) ||
+      isRfiSentStatus(nextStatus);
     const followUpDays = "14";
     const pmActionItems =
       reminder?.pmActionItems ?? row.pmActionItems.trim() ?? "";
@@ -2466,15 +2505,26 @@ export function ProjectsPanel() {
                     </td>
                   </tr>
                 ) : (
-                  pageRows.map((row) => (
+                  pageRows.map((row) => {
+                    const stickyStyle = stickyCustomerStyle(row);
+                    return (
                     <tr key={row.id}>
-                      <td className="col-sticky col-sticky-1">
+                      <td
+                        className="col-sticky col-sticky-1"
+                        style={stickyStyle}
+                      >
                         {cell(row.displayId)}
                       </td>
-                      <td className="col-sticky col-sticky-2">
+                      <td
+                        className="col-sticky col-sticky-2"
+                        style={stickyStyle}
+                      >
                         {cell(row.customer)}
                       </td>
-                      <td className="col-sticky col-sticky-3">
+                      <td
+                        className="col-sticky col-sticky-3"
+                        style={stickyStyle}
+                      >
                         {cell(row.projectName)}
                       </td>
                       <td>
@@ -2616,6 +2666,12 @@ export function ProjectsPanel() {
                           }
                         >
                           <option value="">Select priority</option>
+                          {row.priority.trim() &&
+                          !priorityOptions.includes(row.priority.trim()) ? (
+                            <option value={row.priority.trim()}>
+                              {row.priority.trim()}
+                            </option>
+                          ) : null}
                           {priorityOptions.map((priority) => (
                             <option key={priority} value={priority}>
                               {priority}
@@ -2681,7 +2737,8 @@ export function ProjectsPanel() {
                         )}
                       </td>
                     </tr>
-                  ))
+                    );
+                  })
                 )}
               </tbody>
             </table>

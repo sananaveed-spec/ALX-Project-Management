@@ -20,7 +20,7 @@ type DashboardShellProps = {
 const TAB_TITLES: Record<DashboardTab, string> = {
   naming: "Project Naming",
   customers: "Customer Name",
-  details: "Projects",
+  details: "Active Projects",
   readyToInvoice: "Ready to Invoice",
   todayToDo: "Today To-Do List",
   projectHistory: "Project History",

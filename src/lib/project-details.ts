@@ -77,6 +77,16 @@ export function reminderFieldsForStatus(status: string): {
     };
   }
 
+  // Any status that includes "RFI … sent" (e.g. e.RFI 1 sent, RFI-4 sent)
+  if (/RFI[\s-]?\d*\s*sent/i.test(normalized)) {
+    const date = new Date();
+    date.setDate(date.getDate() + 14);
+    return {
+      pmActionItems: "We need to send follow up email",
+      pmActionItemsDate: todayIsoInLosAngeles(date),
+    };
+  }
+
   return null;
 }
 

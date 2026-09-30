@@ -2,6 +2,11 @@
 
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
+import {
+  generateUniqueCustomerColor,
+  isValidCustomerColor,
+  normalizeCustomerColor,
+} from "@/lib/customers";
 
 export type NewCustomerFormValues = {
   customerId: string;
@@ -11,14 +16,17 @@ export type NewCustomerFormValues = {
   pocEmail: string;
   billToAddress: string;
   apNumber: string;
+  color: string;
 };
 
 type NewCustomerDialogProps = {
   open: boolean;
   onClose: () => void;
-  onSubmit?: (values: NewCustomerFormValues) => void;
+  onSubmit?: (values: NewCustomerFormValues) => void | boolean | Promise<boolean>;
   mode?: "create" | "edit";
   initialValues?: NewCustomerFormValues | null;
+  /** Colors already used by other customers (exclude current row when editing). */
+  reservedColors?: string[];
 };
 
 const emptyForm: NewCustomerFormValues = {
@@ -29,6 +37,7 @@ const emptyForm: NewCustomerFormValues = {
   pocEmail: "",
   billToAddress: "",
   apNumber: "",
+  color: "#4f6bed",
 };
 
 export function NewCustomerDialog({
@@ -37,10 +46,13 @@ export function NewCustomerDialog({
   onSubmit,
   mode = "create",
   initialValues = null,
+  reservedColors = [],
 }: NewCustomerDialogProps) {
   const titleId = useId();
   const [values, setValues] = useState<NewCustomerFormValues>(emptyForm);
   const [mounted, setMounted] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -51,7 +63,22 @@ export function NewCustomerDialog({
       return;
     }
 
-    setValues(initialValues ?? emptyForm);
+    setFormError(null);
+    if (initialValues) {
+      setValues({
+        ...emptyForm,
+        ...initialValues,
+        color:
+          normalizeCustomerColor(initialValues.color) ||
+          generateUniqueCustomerColor(reservedColors),
+      });
+      return;
+    }
+
+    setValues({
+      ...emptyForm,
+      color: generateUniqueCustomerColor(reservedColors),
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional open-gated seed
   }, [
     open,
@@ -62,6 +89,7 @@ export function NewCustomerDialog({
     initialValues?.pocEmail,
     initialValues?.billToAddress,
     initialValues?.apNumber,
+    initialValues?.color,
   ]);
 
   if (!open || !mounted) {
@@ -73,12 +101,39 @@ export function NewCustomerDialog({
     value: NewCustomerFormValues[K],
   ) {
     setValues((current) => ({ ...current, [key]: value }));
+    if (key === "color") {
+      setFormError(null);
+    }
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSubmit?.(values);
-    onClose();
+    const color = normalizeCustomerColor(values.color);
+    if (!isValidCustomerColor(color)) {
+      setFormError("Choose a valid color.");
+      return;
+    }
+
+    const reserved = new Set(
+      reservedColors.map((item) => normalizeCustomerColor(item)).filter(Boolean),
+    );
+    if (reserved.has(color)) {
+      setFormError("This color is already assigned to another customer.");
+      return;
+    }
+
+    const payload = { ...values, color };
+    setSaving(true);
+    setFormError(null);
+    try {
+      const result = await onSubmit?.(payload);
+      if (result === false) {
+        return;
+      }
+      onClose();
+    } finally {
+      setSaving(false);
+    }
   }
 
   return createPortal(
@@ -103,7 +158,7 @@ export function NewCustomerDialog({
           </button>
         </div>
 
-        <form className="dialog-form" onSubmit={handleSubmit}>
+        <form className="dialog-form" onSubmit={(event) => void handleSubmit(event)}>
           <label className="field">
             <span className="field-label">Customer ID</span>
             <input
@@ -131,6 +186,30 @@ export function NewCustomerDialog({
               }
               required
             />
+          </label>
+
+          <label className="field">
+            <span className="field-label">Color</span>
+            <span className="field-color-row">
+              <input
+                className="field-color-picker"
+                type="color"
+                name="color"
+                value={
+                  normalizeCustomerColor(values.color) || "#4f6bed"
+                }
+                onChange={(event) => updateField("color", event.target.value)}
+                aria-label="Customer color"
+              />
+              <input
+                className="field-input field-color-hex"
+                type="text"
+                value={values.color}
+                onChange={(event) => updateField("color", event.target.value)}
+                placeholder="#4f6bed"
+                spellCheck={false}
+              />
+            </span>
           </label>
 
           <label className="field">
@@ -190,15 +269,22 @@ export function NewCustomerDialog({
             />
           </label>
 
+          {formError ? (
+            <p className="form-message error" role="alert">
+              {formError}
+            </p>
+          ) : null}
+
           <div className="dialog-actions">
             <button
               type="button"
               className="button secondary"
               onClick={onClose}
+              disabled={saving}
             >
               Cancel
             </button>
-            <button type="submit" className="button primary">
+            <button type="submit" className="button primary" disabled={saving}>
               Save
             </button>
           </div>
