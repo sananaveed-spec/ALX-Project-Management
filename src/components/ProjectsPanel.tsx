@@ -52,6 +52,13 @@ import { StatusMenuPicker } from "@/components/StatusMenuPicker";
 
 const PAGE_SIZE = 50;
 
+/**
+ * Temporary: status change skips PM Action popup + auto reminder dates
+ * (RFI Sent / Preliminary Sent, etc.). Re-enable after server status cleanup.
+ */
+const STATUS_PM_ACTION_PROMPT_ENABLED = false;
+const STATUS_REMINDER_AUTO_ENABLED = false;
+
 const PROJECT_STATUS_OPTIONS = projectStatusMenuValues();
 
 const PROJECT_INVOICED_OPTIONS = [
@@ -1480,6 +1487,18 @@ export function ProjectsPanel() {
       });
       return;
     }
+    if (!STATUS_PM_ACTION_PROMPT_ENABLED) {
+      const courtResolution = resolveAcCourtForStatus(nextStatus);
+      void handleFieldChange(
+        row.id,
+        "status",
+        nextStatus,
+        courtResolution.kind === "auto"
+          ? { acCourt: courtResolution.value }
+          : undefined,
+      );
+      return;
+    }
     openStatusPmActionPrompt(row, nextStatus);
   }
 
@@ -1530,11 +1549,15 @@ export function ProjectsPanel() {
           const pmActionItems =
             extras?.pmActionItems !== undefined
               ? extras.pmActionItems
-              : reminderFieldsForStatus(nextStatus)?.pmActionItems;
+              : STATUS_REMINDER_AUTO_ENABLED
+                ? reminderFieldsForStatus(nextStatus)?.pmActionItems
+                : undefined;
           const pmActionItemsDate =
             extras?.pmActionItemsDate !== undefined
               ? extras.pmActionItemsDate
-              : reminderFieldsForStatus(nextStatus)?.pmActionItemsDate;
+              : STATUS_REMINDER_AUTO_ENABLED
+                ? reminderFieldsForStatus(nextStatus)?.pmActionItemsDate
+                : undefined;
 
           if (pmActionItems !== undefined) {
             nextRow.pmActionItems = pmActionItems;
@@ -1679,6 +1702,12 @@ export function ProjectsPanel() {
     const choice = terminatedCourtPrompt.choice;
     const nextStatus = terminatedCourtPrompt.nextStatus;
     setTerminatedCourtPrompt(null);
+    if (!STATUS_PM_ACTION_PROMPT_ENABLED) {
+      void handleFieldChange(row.id, "status", nextStatus, {
+        acCourt: choice,
+      });
+      return;
+    }
     openStatusPmActionPrompt(row, nextStatus, choice);
   }
 
