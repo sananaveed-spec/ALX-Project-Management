@@ -7,7 +7,9 @@ import {
 } from "@/lib/data-store";
 import {
   formatHistoryCommentDate,
+  normalizeProjectHistory,
   projectHistoryFromDetail,
+  type ProjectHistoryEntry,
 } from "@/lib/project-history";
 import { todayIsoInLosAngeles } from "@/lib/project-details";
 
@@ -22,6 +24,36 @@ export async function GET() {
       error instanceof Error
         ? error.message
         : "Failed to load project history.";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function PUT(request: Request) {
+  try {
+    const body = (await request.json()) as { history?: unknown };
+    if (!Array.isArray(body.history)) {
+      return NextResponse.json(
+        { error: "Expected { history: ProjectHistoryEntry[] }." },
+        { status: 400 },
+      );
+    }
+
+    const history = body.history
+      .filter(
+        (item): item is Partial<ProjectHistoryEntry> & { id: string } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { id?: unknown }).id === "string",
+      )
+      .map(normalizeProjectHistory);
+
+    await writeProjectHistory(history);
+    return NextResponse.json({ ok: true, history });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Failed to save project history.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -2,10 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import {
-  cascadeDeleteByUniqueIds,
-  confirmCascadeProjectDelete,
-} from "@/lib/cascade-delete-client";
-import {
   sortCompletedProjectsNewestFirst,
   type CompletedProjectEntry,
 } from "@/lib/completed-projects";
@@ -165,24 +161,39 @@ export function CompletedProjectsPanel() {
     if (selectedIds.length === 0) {
       return;
     }
-    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+    const lead =
+      selectedIds.length === 1
+        ? "Delete the selected completed project row?"
+        : `Delete ${selectedIds.length} selected completed project rows?`;
+    if (
+      !window.confirm(
+        `${lead}\n\nThis only removes rows from Completed Projects. Project Naming, Active Projects, Project History, and Invoicing History are not changed.`,
+      )
+    ) {
       return;
     }
 
     const selectedSet = new Set(selectedIds);
-    const uniqueIds = rows
-      .filter((row) => selectedSet.has(row.id))
-      .map((row) => row.displayId);
+    const next = sortCompletedProjectsNewestFirst(
+      rows.filter((row) => !selectedSet.has(row.id)),
+    );
 
     setError(null);
     try {
-      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      const response = await fetch("/api/completed-projects", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completedProjects: next }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        completedProjects?: CompletedProjectEntry[];
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete completed projects.");
+      }
       setRows(
-        sortCompletedProjectsNewestFirst(
-          Array.isArray(data.completedProjects)
-            ? (data.completedProjects as CompletedProjectEntry[])
-            : rows.filter((row) => !selectedSet.has(row.id)),
-        ),
+        sortCompletedProjectsNewestFirst(data.completedProjects ?? next),
       );
       setSelectedIds([]);
     } catch (deleteError) {

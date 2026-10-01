@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { AllProjectStatusPanel } from "@/components/AllProjectStatusPanel";
 import { CompletedProjectsPanel } from "@/components/CompletedProjectsPanel";
 import { CustomerNamePanel } from "@/components/CustomerNamePanel";
 import { EngineerLoadPanel } from "@/components/EngineerLoadPanel";
@@ -27,7 +26,6 @@ const TAB_TITLES: Record<DashboardTab, string> = {
   completedProjects: "Completed Projects",
   invoicingHistory: "Invoicing History",
   engineerLoad: "Engineer Load",
-  allProjectStatus: "All Project Status",
 };
 
 export function DashboardShell({ userName }: DashboardShellProps) {
@@ -71,10 +69,8 @@ export function DashboardShell({ userName }: DashboardShellProps) {
               <CompletedProjectsPanel />
             ) : activeTab === "invoicingHistory" ? (
               <InvoicingHistoryPanel />
-            ) : activeTab === "engineerLoad" ? (
-              <EngineerLoadPanel />
             ) : (
-              <AllProjectStatusPanel />
+              <EngineerLoadPanel />
             )}
           </div>
         </div>

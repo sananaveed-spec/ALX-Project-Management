@@ -11,6 +11,7 @@ import {
   writeCompletedProjects,
   writeProjectDetails,
 } from "@/lib/data-store";
+import { isPartialOrFullInvoiced } from "@/lib/project-details";
 
 export const runtime = "nodejs";
 
@@ -47,6 +48,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Project not found on Projects tab." },
         { status: 404 },
+      );
+    }
+
+    if (isPartialOrFullInvoiced(project.invoiced)) {
+      return NextResponse.json(
+        {
+          error:
+            "Cannot complete — project is on Invoicing History (PARTIAL/FULL). Completing would remove that invoicing history from Active Projects.",
+        },
+        { status: 409 },
       );
     }
 

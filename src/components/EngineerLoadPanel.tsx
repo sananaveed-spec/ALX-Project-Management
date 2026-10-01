@@ -129,12 +129,13 @@ function EngineerColumnCard({
               <th>Project Name</th>
               <th>Stage</th>
               <th>PRIORITY</th>
+              <th>A/D</th>
             </tr>
           </thead>
           <tbody>
             {column.projects.length === 0 ? (
               <tr>
-                <td colSpan={3} className="table-empty-cell">
+                <td colSpan={4} className="table-empty-cell">
                   No projects
                 </td>
               </tr>
@@ -151,6 +152,7 @@ function EngineerColumnCard({
                   </td>
                   <td>{cell(project.stage)}</td>
                   <td>{cell(project.priority)}</td>
+                  <td>{cell(project.ad)}</td>
                 </tr>
               ))
             )}

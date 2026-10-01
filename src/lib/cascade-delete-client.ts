@@ -5,6 +5,10 @@ import {
 export type CascadeDeleteResponse = {
   ok?: boolean;
   error?: string;
+  blockers?: Array<{
+    uniqueId: string;
+    reasons: string[];
+  }>;
   uniqueIds?: string[];
   removed?: {
     naming: number;

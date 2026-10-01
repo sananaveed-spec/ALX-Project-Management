@@ -1,5 +1,10 @@
 import type { ProjectDetailEntry } from "@/lib/project-details";
 import { buildFullName, type ProjectEntry } from "@/lib/projects";
+import {
+  AC_COURT_ALX,
+  AC_COURT_CLIENT,
+  displayAcCourt,
+} from "@/lib/project-status-menu";
 
 /** One project cell under an engineer on ENGINEER LOAD. */
 export type EngineerLoadProject = {
@@ -9,6 +14,8 @@ export type EngineerLoadProject = {
   /** Excel “Stage” / Project Status — from Projects Status. */
   stage: string;
   priority: string;
+  /** A/D: Active (ALX Court) or Dormant (Client Court). */
+  ad: string;
 };
 
 export type EngineerLoadColumn = {
@@ -36,9 +43,24 @@ function resolveFullName(
   return fullName || "—";
 }
 
+/** A/D from A/C Court: ALX Court → Active, Client Court → Dormant. */
+export function formatAdFromCourt(row: {
+  status: string;
+  acCourt: string;
+}): string {
+  const court = displayAcCourt(row).trim().toLowerCase();
+  if (court === AC_COURT_ALX.toLowerCase()) {
+    return "Active";
+  }
+  if (court === AC_COURT_CLIENT.toLowerCase()) {
+    return "Dormant";
+  }
+  return "";
+}
+
 /**
  * Excel ENGINEER LOAD: one column group per engineer
- * (Project Name | Stage | PRIORITY), filled from active PROJECTS.
+ * (Project Name | Stage | PRIORITY | A/D), filled from active PROJECTS.
  * Project Name shows Project Naming Full Name when available.
  */
 export function buildEngineerLoadColumns(
@@ -65,6 +87,7 @@ export function buildEngineerLoadColumns(
       projectName: resolveFullName(row, namingById, namingByUniqueId),
       stage: formatStageLabel(row.status),
       priority: row.priority.trim(),
+      ad: formatAdFromCourt(row),
     };
     const list = byEngineer.get(engineer);
     if (list) {

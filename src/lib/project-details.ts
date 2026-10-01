@@ -9,6 +9,8 @@ export type ProjectDetailEntry = {
   /** From Project Naming → PM Name (ATS user). */
   pmName: string;
   status: string;
+  /** ALX Court / Client Court — derived from Status (Terminated is user-picked). */
+  acCourt: string;
   invoiced: string;
   recentActivity: string;
   recentActivityDate: string;
@@ -34,7 +36,10 @@ export const READY_TO_INVOICE_VALUE = "READY TO INVOICE";
 /** True when Status should stamp Final SCCS Sent (Excel col U). */
 export function isFinalReportSentStatus(status: string): boolean {
   const normalized = status.trim().replace(/\s+/g, " ");
-  return /^b\.Final Report(\s+\d+)?\s+Sent$/i.test(normalized);
+  return (
+    /^b\.Final Report(?:\s+\d+)?\s+Sent$/i.test(normalized) ||
+    /^Final Report(?:\s+\d+)?\s+Sent$/i.test(normalized)
+  );
 }
 
 /**
@@ -67,7 +72,10 @@ export function reminderFieldsForStatus(status: string): {
     };
   }
 
-  if (/^k\.Preliminary Report Sent$/i.test(normalized)) {
+  if (
+    /^k\.Preliminary Report Sent$/i.test(normalized) ||
+    /^Preliminary Report(?:\s+\d+)?\s+Sent$/i.test(normalized)
+  ) {
     const date = new Date();
     date.setDate(date.getDate() + 14);
     return {
@@ -255,6 +263,7 @@ export function normalizeProjectDetail(
     engineer: raw.engineer ?? "",
     pmName: raw.pmName ?? "",
     status: raw.status ?? "",
+    acCourt: raw.acCourt?.trim() ?? "",
     invoiced: raw.invoiced ?? "",
     recentActivity: raw.recentActivity ?? "",
     recentActivityDate: raw.recentActivityDate ?? "",
@@ -262,7 +271,7 @@ export function normalizeProjectDetail(
     pmActionItemsDate: raw.pmActionItemsDate ?? "",
     lastEmailReceivedClient: raw.lastEmailReceivedClient ?? "",
     lastEmailReceivedDate: raw.lastEmailReceivedDate ?? "",
-    priority: raw.priority ?? "",
+    priority: raw.priority?.trim() ?? "",
     etaDays: raw.etaDays ?? "",
     revisionHistory: raw.revisionHistory ?? "",
     partialInvoicingDate: raw.partialInvoicingDate ?? "",
@@ -293,6 +302,7 @@ export function projectDetailFromNaming(input: {
     projectInitializeDate: input.awardDate.trim(),
     engineer: input.engineer?.trim() ?? "",
     pmName: input.pmName?.trim() ?? "",
+    priority: "Normal",
     namingProjectId: input.namingProjectId,
   });
 }

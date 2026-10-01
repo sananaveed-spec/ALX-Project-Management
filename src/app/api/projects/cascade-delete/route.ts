@@ -1,13 +1,15 @@
 import { NextResponse } from "next/server";
-import { applyCascadeDelete } from "@/lib/cascade-delete-projects";
+import {
+  applyCascadeDelete,
+  findProjectDeleteBlockers,
+  formatDeleteBlockedMessage,
+} from "@/lib/cascade-delete-projects";
 import {
   readCompletedProjects,
   readProjectDetails,
   readProjectHistory,
   readProjects,
-  writeCompletedProjects,
   writeProjectDetails,
-  writeProjectHistory,
   writeProjects,
 } from "@/lib/data-store";
 
@@ -42,6 +44,22 @@ export async function POST(request: Request) {
       readProjectHistory(),
     ]);
 
+    const blockers = findProjectDeleteBlockers({
+      uniqueIds,
+      details,
+      completed,
+      history,
+    });
+    if (blockers.length > 0) {
+      return NextResponse.json(
+        {
+          error: formatDeleteBlockedMessage(blockers),
+          blockers,
+        },
+        { status: 409 },
+      );
+    }
+
     const result = applyCascadeDelete({
       uniqueIds,
       naming,
@@ -53,8 +71,6 @@ export async function POST(request: Request) {
     await Promise.all([
       writeProjects(result.namingRemaining),
       writeProjectDetails(result.detailsRemaining),
-      writeCompletedProjects(result.completedRemaining),
-      writeProjectHistory(result.historyRemaining),
     ]);
 
     return NextResponse.json({

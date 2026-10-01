@@ -31,6 +31,7 @@ import {
 import {
   isFinalReportSentStatus,
   isFullyInvoiced,
+  isPartialOrFullInvoiced,
   isReadyToInvoice,
   READY_TO_INVOICE_VALUE,
   remainingInvoicePercent,
@@ -39,53 +40,19 @@ import {
   todayMmDdYyyyInLosAngeles,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
+import {
+  AC_COURT_ALX,
+  AC_COURT_CLIENT,
+  displayAcCourt,
+  isTerminatedStatus,
+  projectStatusMenuValues,
+  resolveAcCourtForStatus,
+} from "@/lib/project-status-menu";
+import { StatusMenuPicker } from "@/components/StatusMenuPicker";
 
 const PAGE_SIZE = 50;
 
-const PROJECT_STATUS_OPTIONS = [
-  "a.HOLD!",
-  "a.TERMINATED",
-  "b.Final Report Sent",
-  "b.Final Report 0 Sent",
-  "b.Final Report 1 Sent",
-  "b.Final Report 2 Sent",
-  "b.Final Report 3 Sent",
-  "c. Memo Sent",
-  "c.Recommendation M",
-  "e.RFI 1 sent",
-  "f.RFI 2 sent",
-  "g.RFI 3 sent",
-  "k.Preliminary Report",
-  "k.Preliminary Report Sent",
-  "n.RFI 1",
-  "o.RFI 2",
-  "t. PIN 70 sent",
-  "t.Preliminary Report",
-  "u. Relay Config Report",
-  "u.Final Report 0",
-  "u.Final Report 1",
-  "v.Preliminary Report Ready",
-  "w.Final Report Ready",
-  "w.Final Report 0 Ready",
-  "w.Final Report 1 Ready",
-  "w.Final Report 2 Ready",
-  "w.Final Report 3 Ready",
-  "w.Final Report 4 Ready",
-  "w.Final Report 5 Ready",
-  "w.Final Report 6 Ready",
-  "w.Final Report 7 Ready",
-  "zStatus",
-  "Final Report 0 Ready",
-  "Final Report 1 Ready",
-  "Final Report 2 Ready",
-  "Final Report 3 Ready",
-  "RFI 3 sent",
-  "RFI-4 sent",
-  "RFI-6 sent",
-  "Final report rev7 sent",
-  "Preliminary report sent",
-  "Final report 4 sent",
-] as const;
+const PROJECT_STATUS_OPTIONS = projectStatusMenuValues();
 
 const PROJECT_INVOICED_OPTIONS = [
   "FULL",
@@ -110,6 +77,7 @@ const PROJECT_TABLE_HEADERS = [
   "Engineer",
   "PM Name",
   "Status",
+  "A/C Court",
   "Invoiced",
   "Recent Activity",
   "Date",
@@ -177,6 +145,15 @@ type StatusPmActionPromptState = {
   /** Shown for k.Preliminary Report Sent — drives reminder date. */
   followUpDays: string;
   showFollowUpDays: boolean;
+  /** A/C Court to persist with this status change. */
+  acCourt?: string;
+};
+
+type TerminatedCourtPromptState = {
+  rowId: string;
+  projectLabel: string;
+  nextStatus: string;
+  choice: typeof AC_COURT_ALX | typeof AC_COURT_CLIENT | "";
 };
 
 function cell(value: string) {
@@ -220,8 +197,10 @@ function appendStatusRevision(existing: string, status: string) {
 }
 
 function isPreliminaryReportSentStatus(status: string) {
-  return /^k\.Preliminary Report Sent$/i.test(
-    status.trim().replace(/\s+/g, " "),
+  const normalized = status.trim().replace(/\s+/g, " ");
+  return (
+    /^k\.Preliminary Report Sent$/i.test(normalized) ||
+    /^Preliminary Report(?:\s+\d+)?\s+Sent$/i.test(normalized)
   );
 }
 
@@ -233,19 +212,6 @@ function addDaysIso(days: number, from = new Date()) {
   const date = new Date(from);
   date.setDate(date.getDate() + days);
   return todayIsoInLosAngeles(date);
-}
-
-/** Dark/light text for readable sticky cells on a customer color. */
-function contrastTextForColor(hex: string) {
-  const color = normalizeCustomerColor(hex);
-  if (!color) {
-    return undefined;
-  }
-  const r = Number.parseInt(color.slice(1, 3), 16);
-  const g = Number.parseInt(color.slice(3, 5), 16);
-  const b = Number.parseInt(color.slice(5, 7), 16);
-  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  return luminance > 0.55 ? "#0b1210" : "#f4f7f5";
 }
 
 function matchesCustomerFilter(customer: CustomerEntry, query: string) {
@@ -355,6 +321,8 @@ export function ProjectsPanel() {
     useState<PmCommentsPromptState | null>(null);
   const [statusPmPrompt, setStatusPmPrompt] =
     useState<StatusPmActionPromptState | null>(null);
+  const [terminatedCourtPrompt, setTerminatedCourtPrompt] =
+    useState<TerminatedCourtPromptState | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
   const customerFilterRef = useRef<HTMLDivElement | null>(null);
@@ -374,6 +342,7 @@ export function ProjectsPanel() {
   const completeTitleId = useId();
   const pmCommentsTitleId = useId();
   const statusPmTitleId = useId();
+  const terminatedCourtTitleId = useId();
   const customerListId = useId();
   const engineerListId = useId();
   const pmListId = useId();
@@ -821,8 +790,7 @@ export function ProjectsPanel() {
       return undefined;
     }
     return {
-      backgroundColor: color,
-      color: contrastTextForColor(color),
+      color,
     } as const;
   }
 
@@ -1027,6 +995,7 @@ export function ProjectsPanel() {
           engineerFromNaming(row),
           pmNameFromNaming(row),
           row.status,
+          displayAcCourt(row),
           row.invoiced,
           row.recentActivity,
           row.pmActionItems,
@@ -1458,7 +1427,11 @@ export function ProjectsPanel() {
     return () => window.clearTimeout(timer);
   }, [statusPmPrompt?.rowId, statusPmPrompt?.nextStatus]);
 
-  function openStatusPmActionPrompt(row: ProjectDetailEntry, nextStatus: string) {
+  function openStatusPmActionPrompt(
+    row: ProjectDetailEntry,
+    nextStatus: string,
+    acCourt?: string,
+  ) {
     const reminder = reminderFieldsForStatus(nextStatus);
     const showFollowUpDays =
       isPreliminaryReportSentStatus(nextStatus) ||
@@ -1472,6 +1445,11 @@ export function ProjectsPanel() {
         row.pmActionItemsDate.trim().slice(0, 10) ||
         todayIsoInLosAngeles();
 
+    const courtResolution = resolveAcCourtForStatus(nextStatus);
+    const nextAcCourt =
+      acCourt ??
+      (courtResolution.kind === "auto" ? courtResolution.value : undefined);
+
     setStatusPmPrompt({
       rowId: row.id,
       projectLabel: row.displayId || row.projectName || "Project",
@@ -1481,7 +1459,28 @@ export function ProjectsPanel() {
       pmActionItemsDate,
       followUpDays,
       showFollowUpDays,
+      acCourt: nextAcCourt,
     });
+  }
+
+  function requestStatusChange(row: ProjectDetailEntry, nextStatus: string) {
+    if (nextStatus === row.status) {
+      return;
+    }
+    if (!nextStatus.trim()) {
+      void handleFieldChange(row.id, "status", "", { acCourt: "" });
+      return;
+    }
+    if (isTerminatedStatus(nextStatus)) {
+      setTerminatedCourtPrompt({
+        rowId: row.id,
+        projectLabel: row.displayId || row.projectName || "Project",
+        nextStatus,
+        choice: "",
+      });
+      return;
+    }
+    openStatusPmActionPrompt(row, nextStatus);
   }
 
   async function handleFieldChange(
@@ -1491,6 +1490,7 @@ export function ProjectsPanel() {
     extras?: {
       pmActionItems?: string;
       pmActionItemsDate?: string;
+      acCourt?: string;
     },
   ) {
     const previous = persistedRowsRef.current;
@@ -1547,6 +1547,20 @@ export function ProjectsPanel() {
               pmActionItemsDate: nextRow.pmActionItemsDate,
             };
           }
+
+          if (extras?.acCourt !== undefined) {
+            nextRow.acCourt = extras.acCourt;
+            patch = { ...patch, acCourt: nextRow.acCourt };
+          } else {
+            const courtResolution = resolveAcCourtForStatus(nextStatus);
+            if (courtResolution.kind === "auto") {
+              nextRow.acCourt = courtResolution.value;
+              patch = { ...patch, acCourt: nextRow.acCourt };
+            }
+          }
+        } else if (!nextStatus) {
+          nextRow.acCourt = extras?.acCourt ?? "";
+          patch = { ...patch, acCourt: nextRow.acCourt };
         }
       }
 
@@ -1638,11 +1652,34 @@ export function ProjectsPanel() {
       {
         pmActionItems: statusPmPrompt.pmActionItems,
         pmActionItemsDate: statusPmPrompt.pmActionItemsDate.slice(0, 10),
+        ...(statusPmPrompt.acCourt !== undefined
+          ? { acCourt: statusPmPrompt.acCourt }
+          : {}),
       },
     );
     if (ok) {
       setStatusPmPrompt(null);
     }
+  }
+
+  function confirmTerminatedCourtPrompt() {
+    if (!terminatedCourtPrompt || !terminatedCourtPrompt.choice) {
+      setError("Select ALX or Client for A/C Court.");
+      return;
+    }
+    const row =
+      rows.find((item) => item.id === terminatedCourtPrompt.rowId) ??
+      persistedRowsRef.current.find(
+        (item) => item.id === terminatedCourtPrompt.rowId,
+      );
+    if (!row) {
+      setTerminatedCourtPrompt(null);
+      return;
+    }
+    const choice = terminatedCourtPrompt.choice;
+    const nextStatus = terminatedCourtPrompt.nextStatus;
+    setTerminatedCourtPrompt(null);
+    openStatusPmActionPrompt(row, nextStatus, choice);
   }
 
   async function handleInvoicedChange(row: ProjectDetailEntry, value: string) {
@@ -1724,6 +1761,12 @@ export function ProjectsPanel() {
   }
 
   function requestCompleteProject(row: ProjectDetailEntry) {
+    if (isPartialOrFullInvoiced(row.invoiced)) {
+      setError(
+        "Cannot complete — project is on Invoicing History (PARTIAL/FULL). Completing would remove that invoicing history from Active Projects.",
+      );
+      return;
+    }
     setCompleteConfirm({
       rowId: row.id,
       projectLabel: row.displayId || row.projectName || "Project",
@@ -2068,33 +2111,18 @@ export function ProjectsPanel() {
                       <td>{cell(engineerFromNaming(row))}</td>
                       <td>{cell(pmNameFromNaming(row))}</td>
                       <td>
-                        <select
-                          className="field-input field-select table-select table-select--status"
+                        <StatusMenuPicker
                           value={row.status}
                           disabled={
                             savingKey === savingKeyFor(row.id, "status")
                           }
-                          aria-label={`Status for ${row.projectName || row.displayId}`}
-                          onChange={(event) => {
-                            const nextStatus = event.target.value;
-                            if (nextStatus === row.status) {
-                              return;
-                            }
-                            if (!nextStatus.trim()) {
-                              void handleFieldChange(row.id, "status", "");
-                              return;
-                            }
-                            openStatusPmActionPrompt(row, nextStatus);
-                          }}
-                        >
-                          <option value="">Select status</option>
-                          {statusOptions.map((status) => (
-                            <option key={status} value={status}>
-                              {status}
-                            </option>
-                          ))}
-                        </select>
+                          ariaLabel={`Status for ${row.projectName || row.displayId}`}
+                          onPick={(nextStatus) =>
+                            requestStatusChange(row, nextStatus)
+                          }
+                        />
                       </td>
+                      <td>{cell(displayAcCourt(row))}</td>
                       <td>
                         <select
                           className="field-input field-select table-select"
@@ -3119,6 +3147,84 @@ export function ProjectsPanel() {
                     onClick={() => void saveMultilineEditor()}
                   >
                     Save
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
+      {mounted && terminatedCourtPrompt
+        ? createPortal(
+            <div className="dialog-backdrop" role="presentation">
+              <div
+                className="dialog-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={terminatedCourtTitleId}
+              >
+                <div className="dialog-header">
+                  <h2 id={terminatedCourtTitleId} className="dialog-title">
+                    A/C Court
+                  </h2>
+                  <button
+                    type="button"
+                    className="dialog-close"
+                    aria-label="Close"
+                    onClick={() => setTerminatedCourtPrompt(null)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="dialog-subtitle">
+                  {terminatedCourtPrompt.projectLabel}
+                </p>
+                <p className="form-message">
+                  Status is <strong>Terminated</strong>. Select A/C Court:
+                </p>
+                <div className="field" style={{ marginTop: "0.75rem" }}>
+                  <label className="field-label" htmlFor="terminated-court">
+                    A/C Court
+                  </label>
+                  <select
+                    id="terminated-court"
+                    className="field-input field-select"
+                    value={terminatedCourtPrompt.choice}
+                    onChange={(event) =>
+                      setTerminatedCourtPrompt((current) =>
+                        current
+                          ? {
+                              ...current,
+                              choice: event.target.value as
+                                | typeof AC_COURT_ALX
+                                | typeof AC_COURT_CLIENT
+                                | "",
+                            }
+                          : current,
+                      )
+                    }
+                  >
+                    <option value="">Select…</option>
+                    <option value={AC_COURT_ALX}>ALX</option>
+                    <option value={AC_COURT_CLIENT}>Client</option>
+                  </select>
+                </div>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    onClick={() => setTerminatedCourtPrompt(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={!terminatedCourtPrompt.choice}
+                    onClick={() => confirmTerminatedCourtPrompt()}
+                  >
+                    Continue
                   </button>
                 </div>
               </div>

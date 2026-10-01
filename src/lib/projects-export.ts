@@ -1,6 +1,7 @@
 import * as XLSX from "xlsx";
 import type { ProjectDetailEntry } from "@/lib/project-details";
 import { partialInvoicesDisplay } from "@/lib/project-details";
+import { displayAcCourt } from "@/lib/project-status-menu";
 
 export const PROJECT_EXPORT_HEADERS = [
   "ID",
@@ -10,6 +11,7 @@ export const PROJECT_EXPORT_HEADERS = [
   "Engineer",
   "PM Name",
   "Status",
+  "A/C Court",
   "Invoiced",
   "Recent Activity",
   "Recent Activity Date",
@@ -34,6 +36,7 @@ export type ProjectExportRow = {
   engineer: string;
   pmName: string;
   status: string;
+  acCourt: string;
   invoiced: string;
   recentActivity: string;
   recentActivityDate: string;
@@ -63,6 +66,7 @@ export function buildProjectExportRows(
     engineer: engineerForRow(row).trim(),
     pmName: (pmNameForRow?.(row) ?? row.pmName).trim(),
     status: row.status.trim(),
+    acCourt: displayAcCourt(row),
     invoiced: row.invoiced.trim(),
     recentActivity: row.recentActivity.trim(),
     recentActivityDate: row.recentActivityDate.trim(),
@@ -89,6 +93,7 @@ function exportCells(row: ProjectExportRow): string[] {
     row.engineer,
     row.pmName,
     row.status,
+    row.acCourt,
     row.invoiced,
     row.recentActivity,
     row.recentActivityDate,

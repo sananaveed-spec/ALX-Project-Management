@@ -3,10 +3,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  cascadeDeleteByUniqueIds,
-  confirmCascadeProjectDelete,
-} from "@/lib/cascade-delete-client";
-import {
   LIST_SORT_OPTIONS,
   sortByListSort,
   type ListSort,
@@ -202,26 +198,36 @@ export function ProjectHistoryPanel() {
     if (selectedIds.length === 0) {
       return;
     }
-    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+    const lead =
+      selectedIds.length === 1
+        ? "Delete the selected history row?"
+        : `Delete ${selectedIds.length} selected history rows?`;
+    if (
+      !window.confirm(
+        `${lead}\n\nThis only removes rows from Project History. Project Naming, Active Projects, Completed Projects, and Invoicing History are not changed.`,
+      )
+    ) {
       return;
     }
 
     const selectedSet = new Set(selectedIds);
-    const uniqueIds = rows
-      .filter((row) => selectedSet.has(row.id))
-      .map((row) => row.displayId);
+    const next = rows.filter((row) => !selectedSet.has(row.id));
 
     setError(null);
     try {
-      const data = await cascadeDeleteByUniqueIds(uniqueIds);
-      if (Array.isArray(data.history)) {
-        setRows(data.history as ProjectHistoryEntry[]);
-      } else {
-        setRows(rows.filter((row) => !selectedSet.has(row.id)));
+      const response = await fetch("/api/project-history", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ history: next }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        history?: ProjectHistoryEntry[];
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to delete history rows.");
       }
-      if (Array.isArray(data.projectDetails)) {
-        setProjects(data.projectDetails as ProjectDetailEntry[]);
-      }
+      setRows(data.history ?? next);
       setSelectedIds([]);
     } catch (deleteError) {
       setError(
