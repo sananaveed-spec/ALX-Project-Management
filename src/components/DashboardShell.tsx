@@ -10,6 +10,7 @@ import { ProjectNamingPanel } from "@/components/ProjectNamingPanel";
 import { ProjectsPanel } from "@/components/ProjectsPanel";
 import { ReadyToInvoicePanel } from "@/components/ReadyToInvoicePanel";
 import { Sidebar, type DashboardTab } from "@/components/Sidebar";
+import { StatusAdminPanel } from "@/components/StatusAdminPanel";
 import { TodayToDoPanel } from "@/components/TodayToDoPanel";
 
 type DashboardShellProps = {
@@ -20,6 +21,7 @@ const TAB_TITLES: Record<DashboardTab, string> = {
   naming: "Project Naming",
   customers: "Customer Name",
   details: "Active Projects",
+  statusMenu: "Status",
   readyToInvoice: "Ready to Invoice",
   todayToDo: "Today To-Do List",
   projectHistory: "Project History",
@@ -59,6 +61,8 @@ export function DashboardShell({ userName }: DashboardShellProps) {
               <CustomerNamePanel />
             ) : activeTab === "details" ? (
               <ProjectsPanel />
+            ) : activeTab === "statusMenu" ? (
+              <StatusAdminPanel />
             ) : activeTab === "readyToInvoice" ? (
               <ReadyToInvoicePanel />
             ) : activeTab === "todayToDo" ? (

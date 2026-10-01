@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import {
   PROJECT_STATUS_MENU,
   isProjectStatusMenuValue,
+  type StatusMenuEntry,
   type StatusMenuGroup,
 } from "@/lib/project-status-menu";
 
@@ -11,6 +12,7 @@ type StatusMenuPickerProps = {
   value: string;
   disabled?: boolean;
   ariaLabel: string;
+  menu?: StatusMenuEntry[];
   onPick: (nextStatus: string) => void;
 };
 
@@ -18,6 +20,7 @@ export function StatusMenuPicker({
   value,
   disabled = false,
   ariaLabel,
+  menu = PROJECT_STATUS_MENU,
   onPick,
 }: StatusMenuPickerProps) {
   const [open, setOpen] = useState(false);
@@ -25,7 +28,8 @@ export function StatusMenuPicker({
   const rootRef = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const trimmed = value.trim();
-  const isLegacy = Boolean(trimmed) && !isProjectStatusMenuValue(trimmed);
+  const isLegacy =
+    Boolean(trimmed) && !isProjectStatusMenuValue(trimmed, menu);
 
   useEffect(() => {
     if (!open) {
@@ -127,13 +131,13 @@ export function StatusMenuPicker({
             </button>
           ) : null}
 
-          {PROJECT_STATUS_MENU.map((entry) => {
+          {menu.map((entry) => {
             if (entry.type === "leaf") {
               const selected =
                 trimmed.toLowerCase() === entry.value.toLowerCase();
               return (
                 <button
-                  key={entry.value}
+                  key={entry.id}
                   type="button"
                   className={
                     selected
@@ -150,10 +154,10 @@ export function StatusMenuPicker({
 
             const groupOpen = openGroup === entry.label;
             const childSelected = entry.children.some(
-              (child) => child.toLowerCase() === trimmed.toLowerCase(),
+              (child) => child.value.toLowerCase() === trimmed.toLowerCase(),
             );
             return (
-              <div key={entry.label} className="status-menu-group">
+              <div key={entry.id} className="status-menu-group">
                 <button
                   type="button"
                   className={
@@ -177,10 +181,10 @@ export function StatusMenuPicker({
                   >
                     {entry.children.map((child) => {
                       const selected =
-                        trimmed.toLowerCase() === child.toLowerCase();
+                        trimmed.toLowerCase() === child.value.toLowerCase();
                       return (
                         <button
-                          key={child}
+                          key={child.id}
                           type="button"
                           className={
                             selected
@@ -188,9 +192,9 @@ export function StatusMenuPicker({
                               : "status-menu-item"
                           }
                           role="menuitem"
-                          onClick={() => pick(child)}
+                          onClick={() => pick(child.value)}
                         >
-                          {child}
+                          {child.value}
                         </button>
                       );
                     })}

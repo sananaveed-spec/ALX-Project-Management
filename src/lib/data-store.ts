@@ -13,7 +13,15 @@ import {
   normalizeProjectHistory,
   type ProjectHistoryEntry,
 } from "@/lib/project-history";
-import { normalizeProject, type ProjectEntry } from "@/lib/projects";
+import {
+  normalizeProject,
+  type ProjectEntry,
+} from "@/lib/projects";
+import {
+  createDefaultStatusMenu,
+  normalizeStatusMenu,
+  type StatusMenuEntry,
+} from "@/lib/project-status-menu";
 
 export function getDataDir() {
   return process.env.DATA_DIR?.trim() || path.join(process.cwd(), "data");
@@ -41,6 +49,10 @@ function completedProjectsPath() {
 
 function projectHistoryPath() {
   return path.join(getDataDir(), "project-history.json");
+}
+
+function statusMenuPath() {
+  return path.join(getDataDir(), "status-menu.json");
 }
 
 function isMissingFile(error: unknown) {
@@ -237,6 +249,34 @@ export async function writeProjectHistory(rows: ProjectHistoryEntry[]) {
   const normalized = rows.map(normalizeProjectHistory);
   await writeFile(
     projectHistoryPath(),
+    JSON.stringify(normalized, null, 2),
+    "utf8",
+  );
+}
+
+export async function readStatusMenu(): Promise<StatusMenuEntry[]> {
+  await ensureDataDir();
+
+  try {
+    const raw = await readFile(statusMenuPath(), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeStatusMenu(parsed);
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw error;
+    }
+
+    const seeded = createDefaultStatusMenu();
+    await writeStatusMenu(seeded);
+    return seeded;
+  }
+}
+
+export async function writeStatusMenu(entries: StatusMenuEntry[]) {
+  await ensureDataDir();
+  const normalized = normalizeStatusMenu(entries);
+  await writeFile(
+    statusMenuPath(),
     JSON.stringify(normalized, null, 2),
     "utf8",
   );

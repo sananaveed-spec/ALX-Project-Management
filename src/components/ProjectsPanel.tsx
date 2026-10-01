@@ -44,9 +44,9 @@ import {
   AC_COURT_ALX,
   AC_COURT_CLIENT,
   displayAcCourt,
-  isTerminatedStatus,
-  projectStatusMenuValues,
+  PROJECT_STATUS_MENU,
   resolveAcCourtForStatus,
+  type StatusMenuEntry,
 } from "@/lib/project-status-menu";
 import { StatusMenuPicker } from "@/components/StatusMenuPicker";
 
@@ -56,10 +56,8 @@ const PAGE_SIZE = 50;
  * Temporary: status change skips PM Action popup + auto reminder dates
  * (RFI Sent / Preliminary Sent, etc.). Re-enable after server status cleanup.
  */
-const STATUS_PM_ACTION_PROMPT_ENABLED = false;
-const STATUS_REMINDER_AUTO_ENABLED = false;
-
-const PROJECT_STATUS_OPTIONS = projectStatusMenuValues();
+const STATUS_PM_ACTION_PROMPT_ENABLED = true;
+const STATUS_REMINDER_AUTO_ENABLED = true;
 
 const PROJECT_INVOICED_OPTIONS = [
   "FULL",
@@ -275,6 +273,9 @@ function matchesPriorityFilter(priority: string, query: string) {
 
 export function ProjectsPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
+  const [statusMenu, setStatusMenu] = useState<StatusMenuEntry[]>(
+    PROJECT_STATUS_MENU,
+  );
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -310,6 +311,9 @@ export function ProjectsPanel() {
   const [statusSearch, setStatusSearch] = useState("");
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [statusFilterOpenGroups, setStatusFilterOpenGroups] = useState<
+    string[]
+  >([]);
   const [invoicedSearch, setInvoicedSearch] = useState("");
   const [selectedInvoiced, setSelectedInvoiced] = useState<string[]>([]);
   const [invoicedDropdownOpen, setInvoicedDropdownOpen] = useState(false);
@@ -370,13 +374,24 @@ export function ProjectsPanel() {
 
     async function loadRows() {
       try {
-        const response = await fetch("/api/project-details");
-        if (!response.ok) {
+        const [detailsResponse, statusResponse] = await Promise.all([
+          fetch("/api/project-details"),
+          fetch("/api/status-menu", { cache: "no-store" }),
+        ]);
+        if (!detailsResponse.ok) {
           throw new Error("Could not load projects.");
         }
-        const data = (await response.json()) as {
+        const data = (await detailsResponse.json()) as {
           projectDetails?: ProjectDetailEntry[];
         };
+        if (statusResponse.ok) {
+          const statusData = (await statusResponse.json()) as {
+            statusMenu?: StatusMenuEntry[];
+          };
+          if (!cancelled && Array.isArray(statusData.statusMenu)) {
+            setStatusMenu(statusData.statusMenu);
+          }
+        }
         if (!cancelled) {
           const next = data.projectDetails ?? [];
           persistedRowsRef.current = next;
@@ -868,25 +883,46 @@ export function ProjectsPanel() {
       selectedPmNameSet.has(user.name.trim().toLowerCase()),
     );
 
-  const statusOptions = useMemo(() => {
-    const options = new Set<string>(PROJECT_STATUS_OPTIONS);
-    for (const row of rows) {
-      if (row.status.trim()) {
-        options.add(row.status.trim());
+  const statusFilterMenu = useMemo(() => {
+    const q = statusSearch.trim().toLowerCase();
+    const entries: StatusMenuEntry[] = [];
+
+    for (const entry of statusMenu) {
+      if (entry.type === "leaf") {
+        if (!q || matchesStatusFilter(entry.value, statusSearch)) {
+          entries.push(entry);
+        }
+        continue;
+      }
+
+      const groupMatches = !q || entry.label.toLowerCase().includes(q);
+      const children = groupMatches
+        ? [...entry.children]
+        : entry.children.filter((child) =>
+            matchesStatusFilter(child.value, statusSearch),
+          );
+      if (children.length > 0) {
+        entries.push({
+          ...entry,
+          children,
+        });
       }
     }
-    return [...options].sort((a, b) =>
-      a.localeCompare(b, undefined, { sensitivity: "base" }),
-    );
-  }, [rows]);
 
-  const statusMatches = useMemo(
-    () =>
-      statusOptions.filter((status) =>
-        matchesStatusFilter(status, statusSearch),
-      ),
-    [statusOptions, statusSearch],
-  );
+    return { entries };
+  }, [statusSearch, statusMenu]);
+
+  const statusFilterVisibleValues = useMemo(() => {
+    const values: string[] = [];
+    for (const entry of statusFilterMenu.entries) {
+      if (entry.type === "leaf") {
+        values.push(entry.value);
+      } else {
+        values.push(...entry.children.map((child) => child.value));
+      }
+    }
+    return values;
+  }, [statusFilterMenu]);
 
   const selectedStatusSet = useMemo(
     () => new Set(selectedStatuses.map((status) => status.toLowerCase())),
@@ -894,8 +930,8 @@ export function ProjectsPanel() {
   );
 
   const allVisibleStatusesSelected =
-    statusMatches.length > 0 &&
-    statusMatches.every((status) =>
+    statusFilterVisibleValues.length > 0 &&
+    statusFilterVisibleValues.every((status) =>
       selectedStatusSet.has(status.toLowerCase()),
     );
 
@@ -1002,7 +1038,7 @@ export function ProjectsPanel() {
           engineerFromNaming(row),
           pmNameFromNaming(row),
           row.status,
-          displayAcCourt(row),
+          displayAcCourt(row, statusMenu),
           row.invoiced,
           row.recentActivity,
           row.pmActionItems,
@@ -1039,6 +1075,7 @@ export function ProjectsPanel() {
     selectedPrioritySet,
     namingEngineerByUniqueId,
     namingPmByUniqueId,
+    statusMenu,
   ]);
 
   const sortedFilteredRows = useMemo(
@@ -1216,8 +1253,52 @@ export function ProjectsPanel() {
     });
   }
 
+  function toggleStatusGroup(
+    children: ReadonlyArray<{ value: string } | string>,
+  ) {
+    const values = children
+      .map((child) =>
+        typeof child === "string" ? child.trim() : child.value.trim(),
+      )
+      .filter(Boolean);
+    if (values.length === 0) {
+      return;
+    }
+    const allSelected = values.every((value) =>
+      selectedStatusSet.has(value.toLowerCase()),
+    );
+    if (allSelected) {
+      const keys = new Set(values.map((value) => value.toLowerCase()));
+      setSelectedStatuses((current) =>
+        current.filter((status) => !keys.has(status.toLowerCase())),
+      );
+      return;
+    }
+    setSelectedStatuses((current) => {
+      const next = [...current];
+      const existing = new Set(current.map((status) => status.toLowerCase()));
+      for (const value of values) {
+        if (!existing.has(value.toLowerCase())) {
+          next.push(value);
+          existing.add(value.toLowerCase());
+        }
+      }
+      return next;
+    });
+  }
+
+  function toggleStatusFilterGroupOpen(label: string) {
+    setStatusFilterOpenGroups((current) =>
+      current.includes(label)
+        ? current.filter((item) => item !== label)
+        : [...current, label],
+    );
+  }
+
   function toggleSelectAllStatusesVisible() {
-    const visibleStatuses = statusMatches.map((status) => status.trim()).filter(Boolean);
+    const visibleStatuses = statusFilterVisibleValues
+      .map((status) => status.trim())
+      .filter(Boolean);
     if (visibleStatuses.length === 0) {
       return;
     }
@@ -1246,6 +1327,7 @@ export function ProjectsPanel() {
   function clearStatusFilter() {
     setSelectedStatuses([]);
     setStatusSearch("");
+    setStatusFilterOpenGroups([]);
   }
 
   function toggleInvoiced(invoiced: string) {
@@ -1452,7 +1534,7 @@ export function ProjectsPanel() {
         row.pmActionItemsDate.trim().slice(0, 10) ||
         todayIsoInLosAngeles();
 
-    const courtResolution = resolveAcCourtForStatus(nextStatus);
+    const courtResolution = resolveAcCourtForStatus(nextStatus, statusMenu);
     const nextAcCourt =
       acCourt ??
       (courtResolution.kind === "auto" ? courtResolution.value : undefined);
@@ -1478,7 +1560,9 @@ export function ProjectsPanel() {
       void handleFieldChange(row.id, "status", "", { acCourt: "" });
       return;
     }
-    if (isTerminatedStatus(nextStatus)) {
+
+    const courtResolution = resolveAcCourtForStatus(nextStatus, statusMenu);
+    if (courtResolution.kind === "choose") {
       setTerminatedCourtPrompt({
         rowId: row.id,
         projectLabel: row.displayId || row.projectName || "Project",
@@ -1487,8 +1571,8 @@ export function ProjectsPanel() {
       });
       return;
     }
+
     if (!STATUS_PM_ACTION_PROMPT_ENABLED) {
-      const courtResolution = resolveAcCourtForStatus(nextStatus);
       void handleFieldChange(
         row.id,
         "status",
@@ -1575,7 +1659,10 @@ export function ProjectsPanel() {
             nextRow.acCourt = extras.acCourt;
             patch = { ...patch, acCourt: nextRow.acCourt };
           } else {
-            const courtResolution = resolveAcCourtForStatus(nextStatus);
+            const courtResolution = resolveAcCourtForStatus(
+              nextStatus,
+              statusMenu,
+            );
             if (courtResolution.kind === "auto") {
               nextRow.acCourt = courtResolution.value;
               patch = { ...patch, acCourt: nextRow.acCourt };
@@ -1702,13 +1789,10 @@ export function ProjectsPanel() {
     const choice = terminatedCourtPrompt.choice;
     const nextStatus = terminatedCourtPrompt.nextStatus;
     setTerminatedCourtPrompt(null);
-    if (!STATUS_PM_ACTION_PROMPT_ENABLED) {
-      void handleFieldChange(row.id, "status", nextStatus, {
-        acCourt: choice,
-      });
-      return;
-    }
-    openStatusPmActionPrompt(row, nextStatus, choice);
+    // Ask-user court: save Status + A/C Court only (no PM Action / RFI popup).
+    void handleFieldChange(row.id, "status", nextStatus, {
+      acCourt: choice,
+    });
   }
 
   async function handleInvoicedChange(row: ProjectDetailEntry, value: string) {
@@ -2142,6 +2226,7 @@ export function ProjectsPanel() {
                       <td>
                         <StatusMenuPicker
                           value={row.status}
+                          menu={statusMenu}
                           disabled={
                             savingKey === savingKeyFor(row.id, "status")
                           }
@@ -2151,7 +2236,7 @@ export function ProjectsPanel() {
                           }
                         />
                       </td>
-                      <td>{cell(displayAcCourt(row))}</td>
+                      <td>{cell(displayAcCourt(row, statusMenu))}</td>
                       <td>
                         <select
                           className="field-input field-select table-select"
@@ -2671,7 +2756,7 @@ export function ProjectsPanel() {
           {statusDropdownOpen ? (
             <div
               id={statusListId}
-              className="filter-dropdown"
+              className="filter-dropdown filter-dropdown--status-menu"
               role="dialog"
               aria-label="Filter by status"
             >
@@ -2689,31 +2774,122 @@ export function ProjectsPanel() {
                   <input
                     type="checkbox"
                     checked={allVisibleStatusesSelected}
-                    disabled={statusMatches.length === 0}
+                    disabled={statusFilterVisibleValues.length === 0}
                     onChange={toggleSelectAllStatusesVisible}
                   />
                   <span>Select all</span>
                 </label>
-                {statusMatches.length === 0 ? (
+                {statusFilterVisibleValues.length === 0 ? (
                   <p className="filter-dropdown-empty">No matching statuses.</p>
                 ) : (
-                  statusMatches.map((status) => {
-                    const checked = selectedStatusSet.has(status.toLowerCase());
-                    return (
-                      <label key={status} className="filter-dropdown-option">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleStatus(status)}
-                        />
-                        <span className="filter-dropdown-option-text">
-                          <span className="filter-dropdown-option-title">
-                            {status}
-                          </span>
-                        </span>
-                      </label>
-                    );
-                  })
+                  <>
+                    {statusFilterMenu.entries.map((entry) => {
+                      if (entry.type === "leaf") {
+                        const checked = selectedStatusSet.has(
+                          entry.value.toLowerCase(),
+                        );
+                        return (
+                          <label
+                            key={entry.value}
+                            className="filter-dropdown-option"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleStatus(entry.value)}
+                            />
+                            <span className="filter-dropdown-option-text">
+                              <span className="filter-dropdown-option-title">
+                                {entry.value}
+                              </span>
+                            </span>
+                          </label>
+                        );
+                      }
+
+                      const searching = statusSearch.trim().length > 0;
+                      const groupOpen =
+                        searching ||
+                        statusFilterOpenGroups.includes(entry.label);
+                      const childKeys = entry.children.map((child) =>
+                        child.value.toLowerCase(),
+                      );
+                      const selectedChildCount = childKeys.filter((key) =>
+                        selectedStatusSet.has(key),
+                      ).length;
+                      const allChildrenSelected =
+                        entry.children.length > 0 &&
+                        selectedChildCount === entry.children.length;
+                      const someChildrenSelected =
+                        selectedChildCount > 0 && !allChildrenSelected;
+
+                      return (
+                        <div
+                          key={entry.id}
+                          className="filter-status-group"
+                        >
+                          <div className="filter-status-group-row">
+                            <label className="filter-dropdown-option filter-status-group-check">
+                              <input
+                                type="checkbox"
+                                checked={allChildrenSelected}
+                                ref={(input) => {
+                                  if (input) {
+                                    input.indeterminate = someChildrenSelected;
+                                  }
+                                }}
+                                onChange={() =>
+                                  toggleStatusGroup(entry.children)
+                                }
+                              />
+                              <span className="filter-dropdown-option-text">
+                                <span className="filter-dropdown-option-title">
+                                  {entry.label}
+                                </span>
+                              </span>
+                            </label>
+                            <button
+                              type="button"
+                              className="filter-status-group-toggle"
+                              aria-expanded={groupOpen}
+                              aria-label={`${groupOpen ? "Collapse" : "Expand"} ${entry.label}`}
+                              onClick={() =>
+                                toggleStatusFilterGroupOpen(entry.label)
+                              }
+                            >
+                              {groupOpen ? "▾" : "▸"}
+                            </button>
+                          </div>
+                          {groupOpen ? (
+                            <div className="filter-status-submenu">
+                              {entry.children.map((child) => {
+                                const checked = selectedStatusSet.has(
+                                  child.value.toLowerCase(),
+                                );
+                                return (
+                                  <label
+                                    key={child.id}
+                                    className="filter-dropdown-option"
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => toggleStatus(child.value)}
+                                    />
+                                    <span className="filter-dropdown-option-text">
+                                      <span className="filter-dropdown-option-title">
+                                        {child.value}
+                                      </span>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </>
                 )}
               </div>
               {selectedStatuses.length > 0 ? (
@@ -3210,7 +3386,9 @@ export function ProjectsPanel() {
                   {terminatedCourtPrompt.projectLabel}
                 </p>
                 <p className="form-message">
-                  Status is <strong>Terminated</strong>. Select A/C Court:
+                  Status is{" "}
+                  <strong>{terminatedCourtPrompt.nextStatus}</strong>. Select
+                  A/C Court (ALX or Client):
                 </p>
                 <div className="field" style={{ marginTop: "0.75rem" }}>
                   <label className="field-label" htmlFor="terminated-court">
