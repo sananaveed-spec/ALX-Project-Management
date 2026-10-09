@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import {
   normalizeCustomerColor,
+  toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
 import {
@@ -798,7 +799,9 @@ export function ProjectsPanel() {
     const map = new Map<string, string>();
     for (const customer of customers) {
       const id = customer.customerId.trim().toLowerCase();
-      const color = normalizeCustomerColor(customer.color);
+      const color =
+        toDarkCustomerColor(customer.color) ||
+        normalizeCustomerColor(customer.color);
       if (id && color) {
         map.set(id, color);
       }

@@ -21,7 +21,7 @@ const TAB_TITLES: Record<DashboardTab, string> = {
   naming: "Project Naming",
   customers: "Customer Name",
   details: "Active Projects",
-  statusMenu: "Status",
+  statusMenu: "Lookup Data",
   readyToInvoice: "Ready to Invoice",
   todayToDo: "Today To-Do List",
   projectHistory: "Project History",

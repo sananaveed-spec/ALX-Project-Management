@@ -6,6 +6,7 @@ import {
   generateUniqueCustomerColor,
   isValidCustomerColor,
   normalizeCustomerColor,
+  toDarkCustomerColor,
 } from "@/lib/customers";
 
 export type NewCustomerFormValues = {
@@ -27,6 +28,8 @@ type NewCustomerDialogProps = {
   initialValues?: NewCustomerFormValues | null;
   /** Colors already used by other customers (exclude current row when editing). */
   reservedColors?: string[];
+  /** Stack above another open dialog (e.g. New Project). */
+  nested?: boolean;
 };
 
 const emptyForm: NewCustomerFormValues = {
@@ -47,6 +50,7 @@ export function NewCustomerDialog({
   mode = "create",
   initialValues = null,
   reservedColors = [],
+  nested = false,
 }: NewCustomerDialogProps) {
   const titleId = useId();
   const [values, setValues] = useState<NewCustomerFormValues>(emptyForm);
@@ -108,14 +112,16 @@ export function NewCustomerDialog({
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const color = normalizeCustomerColor(values.color);
+    const color = toDarkCustomerColor(values.color);
     if (!isValidCustomerColor(color)) {
-      setFormError("Choose a valid color.");
+      setFormError("Choose a dark color that reads well on white.");
       return;
     }
 
     const reserved = new Set(
-      reservedColors.map((item) => normalizeCustomerColor(item)).filter(Boolean),
+      reservedColors
+        .map((item) => toDarkCustomerColor(item) || normalizeCustomerColor(item))
+        .filter(Boolean),
     );
     if (reserved.has(color)) {
       setFormError("This color is already assigned to another customer.");
@@ -137,7 +143,12 @@ export function NewCustomerDialog({
   }
 
   return createPortal(
-    <div className="dialog-backdrop" role="presentation">
+    <div
+      className={
+        nested ? "dialog-backdrop dialog-backdrop--nested" : "dialog-backdrop"
+      }
+      role="presentation"
+    >
       <div
         className="dialog-panel"
         role="dialog"
@@ -196,9 +207,17 @@ export function NewCustomerDialog({
                 type="color"
                 name="color"
                 value={
-                  normalizeCustomerColor(values.color) || "#4f6bed"
+                  toDarkCustomerColor(values.color) ||
+                  normalizeCustomerColor(values.color) ||
+                  "#4f6bed"
                 }
-                onChange={(event) => updateField("color", event.target.value)}
+                onChange={(event) =>
+                  updateField(
+                    "color",
+                    toDarkCustomerColor(event.target.value) ||
+                      event.target.value,
+                  )
+                }
                 aria-label="Customer color"
               />
               <input
@@ -206,9 +225,18 @@ export function NewCustomerDialog({
                 type="text"
                 value={values.color}
                 onChange={(event) => updateField("color", event.target.value)}
+                onBlur={() => {
+                  const darkened = toDarkCustomerColor(values.color);
+                  if (darkened && darkened !== values.color) {
+                    updateField("color", darkened);
+                  }
+                }}
                 placeholder="#4f6bed"
                 spellCheck={false}
               />
+            </span>
+            <span className="field-hint">
+              Dark colors only — must stay readable on a white background.
             </span>
           </label>
 

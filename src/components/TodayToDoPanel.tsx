@@ -3,6 +3,10 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  cascadeDeleteByUniqueIds,
+  confirmCascadeProjectDelete,
+} from "@/lib/cascade-delete-client";
+import {
   LIST_SORT_OPTIONS,
   sortByListSort,
   type ListSort,
@@ -73,6 +77,7 @@ export function TodayToDoPanel() {
   const [sort, setSort] = useState<ListSort>("name");
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const titleId = useId();
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -167,7 +172,11 @@ export function TodayToDoPanel() {
       if (!response.ok) {
         throw new Error(data.error || "Failed to clear reminder.");
       }
-      setRows(data.todayToDo ?? []);
+      const next = data.todayToDo ?? [];
+      setRows(next);
+      setSelectedIds((current) =>
+        current.filter((id) => next.some((row) => row.id === id)),
+      );
       setWizard(null);
     } catch (submitError) {
       setError(
@@ -210,7 +219,11 @@ export function TodayToDoPanel() {
       if (!response.ok) {
         throw new Error(data.error || "Failed to reschedule reminder.");
       }
-      setRows(data.todayToDo ?? []);
+      const next = data.todayToDo ?? [];
+      setRows(next);
+      setSelectedIds((current) =>
+        current.filter((id) => next.some((row) => row.id === id)),
+      );
       setWizard(null);
     } catch (submitError) {
       setError(
@@ -254,10 +267,78 @@ export function TodayToDoPanel() {
   const pageStart = (currentPage - 1) * PAGE_SIZE;
   const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
 
+  function toggleSelect(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id],
+    );
+  }
+
+  function toggleSelectAllVisible(visible: ProjectDetailEntry[]) {
+    const visibleIds = visible.map((row) => row.id);
+    const allSelected =
+      visibleIds.length > 0 &&
+      visibleIds.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds((current) =>
+        current.filter((id) => !visibleIds.includes(id)),
+      );
+      return;
+    }
+    setSelectedIds((current) => [...new Set([...current, ...visibleIds])]);
+  }
+
+  const allVisibleSelected =
+    pageRows.length > 0 &&
+    pageRows.every((row) => selectedIds.includes(row.id));
+
+  async function handleDeleteSelected() {
+    if (selectedIds.length === 0) {
+      return;
+    }
+    if (!confirmCascadeProjectDelete(selectedIds.length)) {
+      return;
+    }
+
+    const selectedSet = new Set(selectedIds);
+    const uniqueIds = rows
+      .filter((row) => selectedSet.has(row.id))
+      .map((row) => row.displayId);
+
+    setError(null);
+    try {
+      const data = await cascadeDeleteByUniqueIds(uniqueIds);
+      if (Array.isArray(data.projectDetails)) {
+        const nextDetails = data.projectDetails.filter(
+          (item): item is ProjectDetailEntry =>
+            typeof item === "object" &&
+            item !== null &&
+            typeof (item as { id?: unknown }).id === "string",
+        );
+        setRows(filterTodayToDoRows(nextDetails));
+      } else {
+        setRows((current) =>
+          current.filter((row) => !selectedSet.has(row.id)),
+        );
+      }
+      setSelectedIds([]);
+      if (wizard && selectedSet.has(wizard.rowId)) {
+        setWizard(null);
+      }
+    } catch (deleteError) {
+      setError(
+        deleteError instanceof Error
+          ? deleteError.message
+          : "Failed to delete projects.",
+      );
+    }
+  }
+
   return (
     <section className="content-panel content-panel--actions">
       {ready ? (
-        <div className="table-toolbar customer-toolbar">
+        <div className="action-row">
           <label className="field history-search-field">
             <span className="field-label">Search</span>
             <input
@@ -282,6 +363,15 @@ export function TodayToDoPanel() {
               ))}
             </select>
           </label>
+          <button
+            type="button"
+            className="button danger"
+            disabled={selectedIds.length === 0 || saving}
+            onClick={() => void handleDeleteSelected()}
+          >
+            Delete
+            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+          </button>
         </div>
       ) : null}
 
@@ -296,9 +386,17 @@ export function TodayToDoPanel() {
       ) : (
         <>
           <div className="table-wrap">
-            <table className="projects-table projects-table--wide">
+            <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
+                  <th className="col-check">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      onChange={() => toggleSelectAllVisible(pageRows)}
+                      aria-label="Select all today to-do rows on this page"
+                    />
+                  </th>
                   {TABLE_HEADERS.map((header) => (
                     <th
                       key={header}
@@ -320,7 +418,7 @@ export function TodayToDoPanel() {
                 {pageRows.length === 0 ? (
                   <tr>
                     <td
-                      colSpan={TABLE_HEADERS.length}
+                      colSpan={TABLE_HEADERS.length + 1}
                       className="table-empty-cell"
                     >
                       {query.trim()
@@ -333,8 +431,20 @@ export function TodayToDoPanel() {
                     const active =
                       wizard?.rowId === row.id ||
                       (saving && wizard?.rowId === row.id);
+                    const isSelected = selectedIds.includes(row.id);
                     return (
-                      <tr key={row.id}>
+                      <tr
+                        key={row.id}
+                        className={isSelected ? "row-selected" : undefined}
+                      >
+                        <td className="col-check">
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(row.id)}
+                            aria-label={`Select ${row.projectName || row.displayId}`}
+                          />
+                        </td>
                         <td className="table-complete-cell">
                           <input
                             type="checkbox"

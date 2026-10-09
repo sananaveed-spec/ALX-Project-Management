@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, Fragment } from "react";
+import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import {
   ExistingProjectDialog,
   type ExistingProjectSaveValues,
@@ -22,6 +22,11 @@ import {
   sortByListSort,
   type ListSort,
 } from "@/lib/list-sort";
+import {
+  normalizeCustomerColor,
+  toDarkCustomerColor,
+  type CustomerEntry,
+} from "@/lib/customers";
 import { getUniqueIdConflict, normalizeProject, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
 
 type TableView = "new" | "all";
@@ -99,12 +104,12 @@ export function ProjectNamingPanel() {
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isExistingProjectOpen, setIsExistingProjectOpen] = useState(false);
   const [projects, setProjects] = useState<ProjectEntry[]>([]);
+  const [customers, setCustomers] = useState<CustomerEntry[]>([]);
   const [latestProjectId, setLatestProjectId] = useState<string | null>(null);
   const [tableView, setTableView] = useState<TableView | null>("all");
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [editingProject, setEditingProject] = useState<ProjectEntry | null>(
     null,
   );
@@ -117,7 +122,6 @@ export function ProjectNamingPanel() {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -125,12 +129,25 @@ export function ProjectNamingPanel() {
 
     async function loadProjects() {
       try {
-        const response = await fetch("/api/projects");
-        if (!response.ok) {
+        const [projectsResponse, customersResponse] = await Promise.all([
+          fetch("/api/projects"),
+          fetch("/api/customers", { cache: "no-store" }),
+        ]);
+        if (!projectsResponse.ok) {
           throw new Error("Could not load saved projects.");
         }
 
-        const data = (await response.json()) as { projects?: ProjectEntry[] };
+        const data = (await projectsResponse.json()) as {
+          projects?: ProjectEntry[];
+        };
+        if (customersResponse.ok) {
+          const customersData = (await customersResponse.json()) as {
+            customers?: CustomerEntry[];
+          };
+          if (!cancelled) {
+            setCustomers(customersData.customers ?? []);
+          }
+        }
         if (!cancelled) {
           setProjects(
             sortProjectsNewestFirst(
@@ -160,20 +177,6 @@ export function ProjectNamingPanel() {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!menuRef.current) {
-        return;
-      }
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpenId(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
   }, []);
 
   async function saveProjects(nextProjects: ProjectEntry[]) {
@@ -495,7 +498,6 @@ export function ProjectNamingPanel() {
     );
 
     setEditingProject(null);
-    setMenuOpenId(null);
     const saved = await saveProjects(nextProjects);
     if (!saved) {
       return false;
@@ -526,7 +528,6 @@ export function ProjectNamingPanel() {
       .filter((project) => selectedSet.has(project.id))
       .map((project) => project.uniqueId);
 
-    setMenuOpenId(null);
     setError(null);
     try {
       const data = await cascadeDeleteByUniqueIds(uniqueIds);
@@ -582,6 +583,25 @@ export function ProjectNamingPanel() {
     setSelectedIds((current) => [
       ...new Set([...current, ...visibleIds]),
     ]);
+  }
+
+  const customerColorById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const customer of customers) {
+      const id = customer.customerId.trim().toLowerCase();
+      const color =
+        toDarkCustomerColor(customer.color) ||
+        normalizeCustomerColor(customer.color);
+      if (id && color) {
+        map.set(id, color);
+      }
+    }
+    return map;
+  }, [customers]);
+
+  function customerCellStyle(customerId: string) {
+    const color = customerColorById.get(customerId.trim().toLowerCase());
+    return color ? ({ color } as const) : undefined;
   }
 
   const visibleProjects = (() => {
@@ -680,7 +700,6 @@ export function ProjectNamingPanel() {
           onClick={() => {
             setTableView("all");
             setSelectedIds([]);
-            setMenuOpenId(null);
             setPage(1);
           }}
           disabled={!ready}
@@ -900,7 +919,6 @@ export function ProjectNamingPanel() {
                         {isExpanded
                           ? group.projects.map((project) => {
                           const isSelected = selectedIds.includes(project.id);
-                          const isMenuOpen = menuOpenId === project.id;
 
                           return (
                             <tr
@@ -918,7 +936,9 @@ export function ProjectNamingPanel() {
                                 />
                               </td>
                               <td>{project.projectName}</td>
-                              <td>{project.customer}</td>
+                              <td style={customerCellStyle(project.customer)}>
+                                {project.customer}
+                              </td>
                               <td>{formatAwardDate(project.awardDate)}</td>
                               <td>{project.year}</td>
                               <td>{project.no}</td>
@@ -934,41 +954,15 @@ export function ProjectNamingPanel() {
                               <td>{cell(project.basecamp)}</td>
                               <td>{cell(project.ats)}</td>
                               <td className="col-actions">
-                                <div
-                                  className="row-menu"
-                                  ref={isMenuOpen ? menuRef : null}
-                                >
+                                <div className="row-menu">
                                   <button
                                     type="button"
                                     className="row-menu-trigger"
-                                    aria-label={`Actions for ${project.projectName}`}
-                                    aria-haspopup="menu"
-                                    aria-expanded={isMenuOpen}
-                                    onClick={() =>
-                                      setMenuOpenId(
-                                        isMenuOpen ? null : project.id,
-                                      )
-                                    }
+                                    aria-label={`Edit ${project.projectName}`}
+                                    onClick={() => setEditingProject(project)}
                                   >
                                     ⋯
                                   </button>
-                                  {isMenuOpen ? (
-                                    <div
-                                      className="row-menu-dropdown"
-                                      role="menu"
-                                    >
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() => {
-                                          setEditingProject(project);
-                                          setMenuOpenId(null);
-                                        }}
-                                      >
-                                        Edit
-                                      </button>
-                                    </div>
-                                  ) : null}
                                 </div>
                               </td>
                             </tr>
@@ -980,7 +974,6 @@ export function ProjectNamingPanel() {
                     })
                   : pageProjects.map((project) => {
                       const isSelected = selectedIds.includes(project.id);
-                      const isMenuOpen = menuOpenId === project.id;
 
                       return (
                         <tr
@@ -996,7 +989,9 @@ export function ProjectNamingPanel() {
                             />
                           </td>
                           <td>{project.projectName}</td>
-                          <td>{project.customer}</td>
+                          <td style={customerCellStyle(project.customer)}>
+                            {project.customer}
+                          </td>
                           <td>{formatAwardDate(project.awardDate)}</td>
                           <td>{project.year}</td>
                           <td>{project.no}</td>
@@ -1012,39 +1007,15 @@ export function ProjectNamingPanel() {
                           <td>{cell(project.basecamp)}</td>
                           <td>{cell(project.ats)}</td>
                           <td className="col-actions">
-                            <div
-                              className="row-menu"
-                              ref={isMenuOpen ? menuRef : null}
-                            >
+                            <div className="row-menu">
                               <button
                                 type="button"
                                 className="row-menu-trigger"
-                                aria-label={`Actions for ${project.projectName}`}
-                                aria-haspopup="menu"
-                                aria-expanded={isMenuOpen}
-                                onClick={() =>
-                                  setMenuOpenId(isMenuOpen ? null : project.id)
-                                }
+                                aria-label={`Edit ${project.projectName}`}
+                                onClick={() => setEditingProject(project)}
                               >
                                 ⋯
                               </button>
-                              {isMenuOpen ? (
-                                <div
-                                  className="row-menu-dropdown"
-                                  role="menu"
-                                >
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() => {
-                                      setEditingProject(project);
-                                      setMenuOpenId(null);
-                                    }}
-                                  >
-                                    Edit
-                                  </button>
-                                </div>
-                              ) : null}
                             </div>
                           </td>
                         </tr>

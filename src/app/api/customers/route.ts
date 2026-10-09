@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server";
 import { readCustomers, writeCustomers } from "@/lib/data-store";
-import { normalizeCustomer, type CustomerEntry } from "@/lib/customers";
+import {
+  ensureCustomerColors,
+  normalizeCustomer,
+  type CustomerEntry,
+} from "@/lib/customers";
 
 export const runtime = "nodejs";
 
 export async function GET() {
   try {
-    const customers = await readCustomers();
-    return NextResponse.json({ customers });
+    const loaded = await readCustomers();
+    const ensured = ensureCustomerColors(loaded);
+    if (ensured.changed) {
+      await writeCustomers(ensured.customers);
+    }
+    return NextResponse.json({ customers: ensured.customers });
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load customers.";

@@ -10,7 +10,16 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import type { CustomerEntry } from "@/lib/customers";
+import {
+  NewCustomerDialog,
+  type NewCustomerFormValues,
+} from "@/components/NewCustomerDialog";
+import {
+  findCustomerColorConflict,
+  normalizeCustomerColor,
+  toDarkCustomerColor,
+  type CustomerEntry,
+} from "@/lib/customers";
 import {
   buildFullName,
   buildUniqueId,
@@ -125,6 +134,7 @@ export function NewProjectDialog({
   const [customerQuery, setCustomerQuery] = useState("");
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [customerHighlight, setCustomerHighlight] = useState(0);
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const customerComboboxRef = useRef<HTMLDivElement | null>(null);
   const [uniqueIdError, setUniqueIdError] = useState<string | null>(null);
   const [createOnBasecamp, setCreateOnBasecamp] = useState(false);
@@ -192,6 +202,7 @@ export function NewProjectDialog({
 
   useEffect(() => {
     if (!open) {
+      setNewCustomerOpen(false);
       return;
     }
 
@@ -208,6 +219,7 @@ export function NewProjectDialog({
     setSaving(false);
     setShowCustomerSuggestions(false);
     setCustomerHighlight(0);
+    setNewCustomerOpen(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional open-gated seed
   }, [
     open,
@@ -468,6 +480,14 @@ export function NewProjectDialog({
   const basecampLocked = mode === "edit" && initialCreateOnBasecamp;
   const atsLocked = mode === "edit" && initialCreateOnAts;
 
+  const reservedCustomerColors = useMemo(
+    () =>
+      customers
+        .map((customer) => normalizeCustomerColor(customer.color))
+        .filter(Boolean),
+    [customers],
+  );
+
   if (!open || !mounted) {
     return null;
   }
@@ -493,6 +513,43 @@ export function NewProjectDialog({
     updateField("customer", customer.customerId.trim());
     setCustomerQuery(customerLabel(customer));
     setShowCustomerSuggestions(false);
+  }
+
+  async function handleCreateCustomerFromProject(
+    values: NewCustomerFormValues,
+  ) {
+    const color = toDarkCustomerColor(values.color);
+    const conflict = findCustomerColorConflict(customers, color);
+    if (conflict) {
+      setCustomersError(
+        `Color ${color} is already used by ${conflict.customerId || conflict.customerName}.`,
+      );
+      return false;
+    }
+
+    const nextCustomer: CustomerEntry = {
+      ...values,
+      color,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    };
+    const nextCustomers = [...customers, nextCustomer];
+
+    const response = await fetch("/api/customers", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ customers: nextCustomers }),
+    });
+    if (!response.ok) {
+      const data = (await response.json()) as { error?: string };
+      setCustomersError(data.error || "Failed to save customer.");
+      return false;
+    }
+
+    setCustomers(nextCustomers);
+    pickCustomer(nextCustomer);
+    setCustomersError(null);
+    setNewCustomerOpen(false);
+    return true;
   }
 
   function handleCustomerKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -565,7 +622,7 @@ export function NewProjectDialog({
     }
   }
 
-  return createPortal(
+  const projectDialog = createPortal(
     <div className="dialog-backdrop" role="presentation">
       <div
         className="dialog-panel"
@@ -606,10 +663,25 @@ export function NewProjectDialog({
             />
           </label>
 
-          <label className="field">
-            <span className="field-label">
-              Customer <span className="field-required" aria-hidden="true">*</span>
-            </span>
+          <div className="field">
+            <div className="field-label-row">
+              <span className="field-label">
+                Customer{" "}
+                <span className="field-required" aria-hidden="true">
+                  *
+                </span>
+              </span>
+              <button
+                type="button"
+                className="field-inline-link"
+                onClick={() => {
+                  setShowCustomerSuggestions(false);
+                  setNewCustomerOpen(true);
+                }}
+              >
+                Not exist? Click here
+              </button>
+            </div>
             <div className="search-combobox" ref={customerComboboxRef}>
               <input
                 className="field-input"
@@ -621,7 +693,7 @@ export function NewProjectDialog({
                     ? "Loading customers…"
                     : "Search client name or code, or scroll the list"
                 }
-                disabled={customersLoading || customers.length === 0}
+                disabled={customersLoading}
                 required
                 aria-required="true"
                 onChange={(event) => {
@@ -663,7 +735,19 @@ export function NewProjectDialog({
                         onMouseEnter={() => setCustomerHighlight(index)}
                         onClick={() => pickCustomer(customer)}
                       >
-                        <span className="search-option-title">
+                        <span
+                          className="search-option-title"
+                          style={
+                            toDarkCustomerColor(customer.color) ||
+                            normalizeCustomerColor(customer.color)
+                              ? {
+                                  color:
+                                    toDarkCustomerColor(customer.color) ||
+                                    normalizeCustomerColor(customer.color),
+                                }
+                              : undefined
+                          }
+                        >
                           {customer.customerName.trim() ||
                             customer.customerId.trim()}
                         </span>
@@ -685,10 +769,10 @@ export function NewProjectDialog({
               <span className="field-hint error">{customersError}</span>
             ) : customers.length === 0 && !customersLoading ? (
               <span className="field-hint">
-                Add a customer in the Customer Name tab first.
+                No customers yet — use Not exist? Click here to add one.
               </span>
             ) : null}
-          </label>
+          </div>
 
           <label className="field">
             <span className="field-label">Award Date</span>
@@ -974,5 +1058,18 @@ export function NewProjectDialog({
       </div>
     </div>,
     document.body,
+  );
+
+  return (
+    <>
+      {projectDialog}
+      <NewCustomerDialog
+        open={open && newCustomerOpen}
+        nested
+        onClose={() => setNewCustomerOpen(false)}
+        onSubmit={handleCreateCustomerFromProject}
+        reservedColors={reservedCustomerColors}
+      />
+    </>
   );
 }

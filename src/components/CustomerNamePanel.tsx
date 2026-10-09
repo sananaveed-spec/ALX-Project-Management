@@ -9,6 +9,7 @@ import {
   ensureCustomerColors,
   findCustomerColorConflict,
   normalizeCustomerColor,
+  toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
 
@@ -104,7 +105,6 @@ export function CustomerNamePanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [editingCustomer, setEditingCustomer] = useState<CustomerEntry | null>(
     null,
   );
@@ -112,7 +112,6 @@ export function CustomerNamePanel() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<CustomerSort>("name");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -169,20 +168,6 @@ export function CustomerNamePanel() {
     };
   }, []);
 
-  useEffect(() => {
-    function handlePointerDown(event: MouseEvent) {
-      if (!menuRef.current) {
-        return;
-      }
-      if (!menuRef.current.contains(event.target as Node)) {
-        setMenuOpenId(null);
-      }
-    }
-
-    document.addEventListener("mousedown", handlePointerDown);
-    return () => document.removeEventListener("mousedown", handlePointerDown);
-  }, []);
-
   async function saveCustomers(nextCustomers: CustomerEntry[]) {
     setCustomers(nextCustomers);
     setError(null);
@@ -198,7 +183,7 @@ export function CustomerNamePanel() {
   }
 
   async function handleSaveCustomer(values: NewCustomerFormValues) {
-    const color = normalizeCustomerColor(values.color);
+    const color = toDarkCustomerColor(values.color);
     const conflict = findCustomerColorConflict(customers, color);
     if (conflict) {
       setError(
@@ -223,7 +208,7 @@ export function CustomerNamePanel() {
       return false;
     }
 
-    const color = normalizeCustomerColor(values.color);
+    const color = toDarkCustomerColor(values.color);
     const conflict = findCustomerColorConflict(
       customers,
       color,
@@ -243,7 +228,6 @@ export function CustomerNamePanel() {
     );
 
     setEditingCustomer(null);
-    setMenuOpenId(null);
     await saveCustomers(nextCustomers);
     return true;
   }
@@ -268,7 +252,6 @@ export function CustomerNamePanel() {
     );
 
     setSelectedIds([]);
-    setMenuOpenId(null);
     if (
       latestCustomerId &&
       selectedSet.has(latestCustomerId) &&
@@ -349,7 +332,6 @@ export function CustomerNamePanel() {
           onClick={() => {
             setTableView("all");
             setSelectedIds([]);
-            setMenuOpenId(null);
             setPage(1);
           }}
           disabled={!ready}
@@ -453,7 +435,10 @@ export function CustomerNamePanel() {
                 ) : (
                   pageCustomers.map((customer) => {
                     const isSelected = selectedIds.includes(customer.id);
-                    const isMenuOpen = menuOpenId === customer.id;
+                    const nameColor =
+                      toDarkCustomerColor(customer.color) ||
+                      normalizeCustomerColor(customer.color) ||
+                      undefined;
 
                     return (
                       <tr
@@ -468,8 +453,16 @@ export function CustomerNamePanel() {
                             aria-label={`Select ${customer.customerName || customer.customerId}`}
                           />
                         </td>
-                        <td>{customer.customerId}</td>
-                        <td>{customer.customerName}</td>
+                        <td className="customer-id-name-cell">
+                          <span style={nameColor ? { color: nameColor } : undefined}>
+                            {customer.customerId}
+                          </span>
+                        </td>
+                        <td className="customer-id-name-cell">
+                          <span style={nameColor ? { color: nameColor } : undefined}>
+                            {customer.customerName}
+                          </span>
+                        </td>
                         <td>
                           <span className="customer-color-cell">
                             <span
@@ -492,36 +485,15 @@ export function CustomerNamePanel() {
                         <td>{customer.billToAddress}</td>
                         <td>{customer.apNumber}</td>
                         <td className="col-actions">
-                          <div
-                            className="row-menu"
-                            ref={isMenuOpen ? menuRef : null}
-                          >
+                          <div className="row-menu">
                             <button
                               type="button"
                               className="row-menu-trigger"
-                              aria-label={`Actions for ${customer.customerName || customer.customerId}`}
-                              aria-haspopup="menu"
-                              aria-expanded={isMenuOpen}
-                              onClick={() =>
-                                setMenuOpenId(isMenuOpen ? null : customer.id)
-                              }
+                              aria-label={`Edit ${customer.customerName || customer.customerId}`}
+                              onClick={() => setEditingCustomer(customer)}
                             >
                               ⋯
                             </button>
-                            {isMenuOpen ? (
-                              <div className="row-menu-dropdown" role="menu">
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  onClick={() => {
-                                    setEditingCustomer(customer);
-                                    setMenuOpenId(null);
-                                  }}
-                                >
-                                  Edit
-                                </button>
-                              </div>
-                            ) : null}
                           </div>
                         </td>
                       </tr>
