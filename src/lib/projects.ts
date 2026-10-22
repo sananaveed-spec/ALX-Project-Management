@@ -17,6 +17,8 @@ export type ProjectEntry = {
   basecamp: string;
   /** "Yes" when created on ATS / Timesheets at save time. */
   ats: string;
+  /** "Yes" when SharePoint project folders were created at save time. */
+  sharepoint: string;
 };
 
 /** UniqueID = Customer + Year + No (e.g. ESR + 19 + 001 → ESR19001). */
@@ -272,6 +274,7 @@ export function normalizeProject(
     qb: normalizeQbFlag(raw.qb),
     basecamp: raw.basecamp ?? "",
     ats: raw.ats ?? "",
+    sharepoint: raw.sharepoint ?? "",
   };
 }
 

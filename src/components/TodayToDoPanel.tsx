@@ -13,8 +13,7 @@ import {
 } from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
 import { filterTodayToDoRows } from "@/lib/project-history";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
   "Done",
@@ -80,6 +79,12 @@ export function TodayToDoPanel() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [mounted, setMounted] = useState(false);
   const titleId = useId();
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 52, minRows: 5, maxRows: 40 },
+    ready,
+  );
   const textAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const dateInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -260,12 +265,12 @@ export function TodayToDoPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort]);
+  }, [query, sort, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageRows = visibleRows.slice(pageStart, pageStart + pageSize);
 
   function toggleSelect(id: string) {
     setSelectedIds((current) =>
@@ -340,20 +345,22 @@ export function TodayToDoPanel() {
       {ready ? (
         <div className="action-row">
           <label className="field history-search-field">
-            <span className="field-label">Search</span>
+            <span className="visually-hidden">Search</span>
             <input
               className="field-input"
               type="search"
               placeholder="ID, project name, reminder, engineer…"
+              aria-label="Search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <label className="field customer-sort-field">
-            <span className="field-label">Sort</span>
+            <span className="visually-hidden">Sort</span>
             <select
               className="field-input"
               value={sort}
+              aria-label="Sort"
               onChange={(event) => setSort(event.target.value as ListSort)}
             >
               {LIST_SORT_OPTIONS.map((option) => (
@@ -385,7 +392,7 @@ export function TodayToDoPanel() {
         <p className="table-empty">Loading today to-do list…</p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
             <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
@@ -533,7 +540,7 @@ export function TodayToDoPanel() {
             </table>
           </div>
 
-          {visibleRows.length > PAGE_SIZE ? (
+          {visibleRows.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -547,7 +554,7 @@ export function TodayToDoPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {Math.min(pageStart + pageSize, visibleRows.length)} of{" "}
                   {visibleRows.length})
                 </span>
               </span>

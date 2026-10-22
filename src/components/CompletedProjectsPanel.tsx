@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   sortCompletedProjectsNewestFirst,
   type CompletedProjectEntry,
@@ -10,8 +10,7 @@ import {
   sortByListSort,
   type ListSort,
 } from "@/lib/list-sort";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
   "ID",
@@ -75,6 +74,12 @@ export function CompletedProjectsPanel() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 42, minRows: 6, maxRows: 50 },
+    ready,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -124,12 +129,12 @@ export function CompletedProjectsPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort]);
+  }, [query, sort, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageRows = visibleRows.slice(pageStart, pageStart + pageSize);
 
   function toggleSelect(id: string) {
     setSelectedIds((current) =>
@@ -208,22 +213,24 @@ export function CompletedProjectsPanel() {
   return (
     <section className="content-panel content-panel--actions">
       {ready ? (
-        <div className="table-toolbar customer-toolbar">
+        <div className="action-row">
           <label className="field history-search-field">
-            <span className="field-label">Search</span>
+            <span className="visually-hidden">Search</span>
             <input
               className="field-input"
               type="search"
               placeholder="ID, customer, project name, engineer…"
+              aria-label="Search"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
             />
           </label>
           <label className="field customer-sort-field">
-            <span className="field-label">Sort</span>
+            <span className="visually-hidden">Sort</span>
             <select
               className="field-input"
               value={sort}
+              aria-label="Sort"
               onChange={(event) => setSort(event.target.value as ListSort)}
             >
               {LIST_SORT_OPTIONS.map((option) => (
@@ -233,6 +240,15 @@ export function CompletedProjectsPanel() {
               ))}
             </select>
           </label>
+          <button
+            type="button"
+            className="button danger"
+            disabled={selectedIds.length === 0}
+            onClick={() => void handleDeleteSelected()}
+          >
+            Delete
+            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+          </button>
         </div>
       ) : null}
 
@@ -246,19 +262,7 @@ export function CompletedProjectsPanel() {
         <p className="table-empty">Loading completed projects…</p>
       ) : (
         <>
-          <div className="table-toolbar">
-            <button
-              type="button"
-              className="button danger"
-              disabled={selectedIds.length === 0}
-              onClick={() => void handleDeleteSelected()}
-            >
-              Delete
-              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-            </button>
-          </div>
-
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
             <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
@@ -341,7 +345,7 @@ export function CompletedProjectsPanel() {
             </table>
           </div>
 
-          {visibleRows.length > PAGE_SIZE ? (
+          {visibleRows.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -355,7 +359,7 @@ export function CompletedProjectsPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {Math.min(pageStart + pageSize, visibleRows.length)} of{" "}
                   {visibleRows.length})
                 </span>
               </span>

@@ -10,6 +10,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
+import { useMsal } from "@azure/msal-react";
 import {
   NewCustomerDialog,
   type NewCustomerFormValues,
@@ -20,6 +21,7 @@ import {
   toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
+import { ensureSharePointAccess } from "@/lib/sharepoint-graph";
 import {
   buildFullName,
   buildUniqueId,
@@ -42,6 +44,7 @@ export type NewProjectFormValues = {
   pmName?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
+  createOnSharePoint?: boolean;
   /** QB checkbox → Yes / No on Project Naming. */
   qb?: boolean;
 };
@@ -58,6 +61,7 @@ type ProjectFormFields = Omit<
   | "fullName"
   | "createOnBasecamp"
   | "createOnAts"
+  | "createOnSharePoint"
   | "engineer"
   | "pmName"
   | "qb"
@@ -76,6 +80,8 @@ type NewProjectDialogProps = {
   initialCreateOnBasecamp?: boolean;
   /** Seed Create on ATS checkbox (Edit). */
   initialCreateOnAts?: boolean;
+  /** Seed Create on SharePoint checkbox (Edit). */
+  initialCreateOnSharePoint?: boolean;
   /** Seed QB checkbox (Edit). */
   initialQb?: boolean;
   existingProjects?: ProjectEntry[];
@@ -120,13 +126,17 @@ export function NewProjectDialog({
   initialValues = null,
   initialCreateOnBasecamp = false,
   initialCreateOnAts = false,
+  initialCreateOnSharePoint = false,
   initialQb = false,
   existingProjects = [],
   excludeProjectId = null,
 }: NewProjectDialogProps) {
+  const { instance, accounts } = useMsal();
   const titleId = useId();
   const customerListId = useId();
   const [values, setValues] = useState<ProjectFormFields>(emptyForm);
+  const [sharePointHint, setSharePointHint] = useState<string | null>(null);
+  const [sharePointConnecting, setSharePointConnecting] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [customers, setCustomers] = useState<CustomerEntry[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -141,6 +151,7 @@ export function NewProjectDialog({
   const [basecampConnected, setBasecampConnected] = useState(false);
   const [basecampStatusLoading, setBasecampStatusLoading] = useState(false);
   const [createOnAts, setCreateOnAts] = useState(false);
+  const [createOnSharePoint, setCreateOnSharePoint] = useState(false);
   const [qb, setQb] = useState(false);
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
@@ -214,6 +225,9 @@ export function NewProjectDialog({
     setUniqueIdError(null);
     setCreateOnBasecamp(initialCreateOnBasecamp);
     setCreateOnAts(initialCreateOnAts);
+    setCreateOnSharePoint(initialCreateOnSharePoint);
+    setSharePointHint(null);
+    setSharePointConnecting(false);
     setQb(initialQb);
     setEngineersError(null);
     setSaving(false);
@@ -233,6 +247,7 @@ export function NewProjectDialog({
     initialValues?.pmName,
     initialCreateOnBasecamp,
     initialCreateOnAts,
+    initialCreateOnSharePoint,
     initialQb,
   ]);
 
@@ -479,6 +494,7 @@ export function NewProjectDialog({
 
   const basecampLocked = mode === "edit" && initialCreateOnBasecamp;
   const atsLocked = mode === "edit" && initialCreateOnAts;
+  const sharePointLocked = mode === "edit" && initialCreateOnSharePoint;
 
   const reservedCustomerColors = useMemo(
     () =>
@@ -610,6 +626,7 @@ export function NewProjectDialog({
         pmName: values.pmName.trim() || undefined,
         createOnBasecamp,
         createOnAts,
+        createOnSharePoint,
         qb,
       });
       // Parent returns false when Basecamp/ATS/save failed — keep dialog open.
@@ -1030,6 +1047,75 @@ export function NewProjectDialog({
                 </span>
               )
             ) : null}
+
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={createOnSharePoint}
+                disabled={sharePointLocked || saving}
+                onChange={(event) => {
+                  const checked = event.target.checked;
+                  setCreateOnSharePoint(checked);
+                  setSharePointHint(null);
+                  if (!checked || sharePointLocked) {
+                    setSharePointConnecting(false);
+                    return;
+                  }
+                  const account = accounts[0] ?? instance.getActiveAccount();
+                  if (!account) {
+                    setSharePointHint(
+                      "Sign in again, then check Create on SharePoint.",
+                    );
+                    setCreateOnSharePoint(false);
+                    return;
+                  }
+                  setSharePointConnecting(true);
+                  setSharePointHint(
+                    "Connecting to SharePoint… finish the Microsoft popup, then click Save.",
+                  );
+                  void ensureSharePointAccess(instance, account)
+                    .then(() => {
+                      setSharePointConnecting(false);
+                      setSharePointHint(
+                        "SharePoint connected. Folder will be created on Save.",
+                      );
+                    })
+                    .catch((accessError) => {
+                      setSharePointConnecting(false);
+                      setCreateOnSharePoint(false);
+                      setSharePointHint(
+                        accessError instanceof Error
+                          ? accessError.message
+                          : "Could not connect to SharePoint.",
+                      );
+                    });
+                }}
+              />
+              <span>Create on SharePoint?</span>
+            </label>
+            {sharePointLocked ? (
+              <span className="field-hint">
+                Already created on SharePoint for this project (read-only).
+              </span>
+            ) : sharePointHint ? (
+              <span
+                className={
+                  createOnSharePoint ? "field-hint" : "field-hint error"
+                }
+              >
+                {sharePointHint}
+              </span>
+            ) : createOnSharePoint ? (
+              <span className="field-hint">
+                Creates{" "}
+                <code>
+                  Documents/{"{yymmdd}"} - {"{Project Name}"} - {"{UniqueID}"}/
+                  {"{Project Name}"}
+                </code>{" "}
+                on AllumiaX Engineering. Requires Sites.Read.All +
+                Files.ReadWrite.All (admin consent).
+              </span>
+            ) : null}
           </div>
 
           <div className="dialog-actions">
@@ -1046,6 +1132,7 @@ export function NewProjectDialog({
               className="button primary"
               disabled={
                 saving ||
+                sharePointConnecting ||
                 customersLoading ||
                 !values.customer ||
                 Boolean(uniqueIdConflict)

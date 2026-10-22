@@ -9,8 +9,7 @@ import {
 } from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
 import { type ProjectHistoryEntry } from "@/lib/project-history";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
   "ID",
@@ -91,6 +90,12 @@ export function ProjectHistoryPanel() {
   const [mounted, setMounted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const titleId = useId();
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 44, minRows: 6, maxRows: 50 },
+    ready,
+  );
   const commentRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -161,12 +166,12 @@ export function ProjectHistoryPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort]);
+  }, [query, sort, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageRows = filtered.slice(pageStart, pageStart + pageSize);
 
   function toggleSelect(id: string) {
     setSelectedIds((current) =>
@@ -299,20 +304,22 @@ export function ProjectHistoryPanel() {
     <section className="content-panel content-panel--actions">
       <div className="action-row">
         <label className="field history-search-field">
-          <span className="field-label">Search</span>
+          <span className="visually-hidden">Search</span>
           <input
             className="field-input"
             type="search"
             placeholder="ID, customer, project name, comments…"
+            aria-label="Search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
           />
         </label>
         <label className="field customer-sort-field">
-          <span className="field-label">Sort</span>
+          <span className="visually-hidden">Sort</span>
           <select
             className="field-input"
             value={sort}
+            aria-label="Sort"
             onChange={(event) => setSort(event.target.value as ListSort)}
           >
             {LIST_SORT_OPTIONS.map((option) => (
@@ -356,7 +363,7 @@ export function ProjectHistoryPanel() {
         <p className="table-empty">Loading project history…</p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
             <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
@@ -454,7 +461,7 @@ export function ProjectHistoryPanel() {
             </table>
           </div>
 
-          {filtered.length > PAGE_SIZE ? (
+          {filtered.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -468,7 +475,7 @@ export function ProjectHistoryPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, filtered.length)} of{" "}
+                  {Math.min(pageStart + pageSize, filtered.length)} of{" "}
                   {filtered.length})
                 </span>
               </span>

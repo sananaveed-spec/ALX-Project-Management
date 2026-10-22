@@ -18,8 +18,7 @@ import {
   validatePartialInvoicePercent,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
   "Mark invoiced",
@@ -132,6 +131,12 @@ export function ReadyToInvoicePanel() {
   const [wizardError, setWizardError] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 56, minRows: 5, maxRows: 40 },
+    ready,
+  );
   const editorTitleId = useId();
   const invoiceTitleId = useId();
   const editorTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -241,7 +246,7 @@ export function ReadyToInvoicePanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort]);
+  }, [query, sort, pageSize]);
 
   async function persistRow(
     rowId: string,
@@ -544,10 +549,10 @@ export function ReadyToInvoicePanel() {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageRows = visibleRows.slice(pageStart, pageStart + pageSize);
   const wizardBusy = invoicingId !== null;
   const wizardRow =
     invoiceWizard != null
@@ -606,17 +611,19 @@ export function ReadyToInvoicePanel() {
         <p className="table-empty">Loading projects…</p>
       ) : (
         <>
-          <div className="table-wrap">
-            <table className="projects-table projects-table--wide">
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
+            <table className="projects-table projects-table--wide projects-table--with-check projects-table--mark-invoiced">
               <thead>
                 <tr>
                   {TABLE_HEADERS.map((header, index) => (
                     <th
                       key={header}
                       className={
-                        index >= 1 && index <= 3
-                          ? `col-sticky col-sticky-${index}`
-                          : undefined
+                        index === 0
+                          ? "col-sticky col-sticky-check"
+                          : index <= 3
+                            ? `col-sticky col-sticky-${index}`
+                            : undefined
                       }
                     >
                       {header}
@@ -639,7 +646,7 @@ export function ReadyToInvoicePanel() {
                 ) : (
                   pageRows.map((row) => (
                     <tr key={row.id}>
-                      <td className="table-complete-cell">
+                      <td className="col-sticky col-sticky-check table-complete-cell">
                         <input
                           type="checkbox"
                           className="table-complete-checkbox"
@@ -691,7 +698,7 @@ export function ReadyToInvoicePanel() {
             </table>
           </div>
 
-          {visibleRows.length > PAGE_SIZE ? (
+          {visibleRows.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -706,7 +713,7 @@ export function ReadyToInvoicePanel() {
                 <span className="pagination-range">
                   {" "}
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {Math.min(pageStart + pageSize, visibleRows.length)} of{" "}
                   {visibleRows.length})
                 </span>
               </span>

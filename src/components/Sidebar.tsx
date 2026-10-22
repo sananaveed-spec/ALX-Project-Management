@@ -44,8 +44,11 @@ export function Sidebar({ activeTab, onTabChange, userName }: SidebarProps) {
   return (
     <aside className="sidebar">
       <div className="brand-block">
-        <p className="brand">AllumiaX</p>
-        <p className="brand-sub">Project Management</p>
+        <img
+          className="brand-logo"
+          src="/allumiax-logo.png"
+          alt="AllumiaX"
+        />
       </div>
 
       <nav className="nav-list" aria-label="Project Management">

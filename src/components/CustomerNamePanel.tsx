@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   NewCustomerDialog,
   type NewCustomerFormValues,
@@ -12,11 +12,26 @@ import {
   toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
+import {
+  exportTableAsCsv,
+  exportTableAsExcel,
+  exportTableAsPdf,
+} from "@/lib/list-export";
+import { useFitPageSize } from "@/lib/use-fit-page-size";
+
+const CUSTOMER_EXPORT_HEADERS = [
+  "Customer ID",
+  "Customer Name",
+  "Color",
+  "AP Email",
+  "POC Name",
+  "POC Email",
+  "Bill To Address",
+  "A/P Number",
+] as const;
 
 type TableView = "new" | "all";
 type CustomerSort = "name" | "id" | "newest";
-
-const PAGE_SIZE = 50;
 
 function customerCreatedAt(id: string) {
   const stamp = Number.parseInt(id.split("-")[0] ?? "", 10);
@@ -28,16 +43,7 @@ function matchesCustomerQuery(customer: CustomerEntry, query: string) {
   if (!q) {
     return true;
   }
-  const haystack = [
-    customer.customerId,
-    customer.customerName,
-    customer.email,
-    customer.pocName,
-    customer.pocEmail,
-    customer.billToAddress,
-    customer.apNumber,
-    customer.color,
-  ]
+  const haystack = [customer.customerId, customer.customerName]
     .join(" ")
     .toLowerCase();
   return haystack.includes(q);
@@ -111,7 +117,17 @@ export function CustomerNamePanel() {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<CustomerSort>("name");
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuId = useId();
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 40, minRows: 8, maxRows: 50 },
+    ready && customers.length > 0 && Boolean(tableView),
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -306,89 +322,107 @@ export function CustomerNamePanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, tableView]);
+  }, [query, sort, tableView, pageSize]);
 
   const totalPages = Math.max(
     1,
-    Math.ceil(sortedVisibleCustomers.length / PAGE_SIZE),
+    Math.ceil(sortedVisibleCustomers.length / pageSize),
   );
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageStart = (currentPage - 1) * pageSize;
   const pageCustomers = sortedVisibleCustomers.slice(
     pageStart,
-    pageStart + PAGE_SIZE,
+    pageStart + pageSize,
   );
 
   const allVisibleSelected =
     pageCustomers.length > 0 &&
     pageCustomers.every((customer) => selectedIds.includes(customer.id));
 
+  useEffect(() => {
+    if (!exportDropdownOpen) {
+      return;
+    }
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+        setExportDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [exportDropdownOpen]);
+
+  function handleExport(format: "excel" | "pdf" | "csv") {
+    setExportError(null);
+    try {
+      const headers = [...CUSTOMER_EXPORT_HEADERS];
+      const rows = sortedVisibleCustomers.map((customer) => [
+        customer.customerId.trim(),
+        customer.customerName.trim(),
+        customer.color.trim(),
+        customer.email.trim(),
+        customer.pocName.trim(),
+        customer.pocEmail.trim(),
+        customer.billToAddress.trim(),
+        customer.apNumber.trim(),
+      ]);
+      if (format === "excel") {
+        exportTableAsExcel(headers, rows, "customers", "Customers");
+      } else if (format === "pdf") {
+        exportTableAsPdf("Customers", headers, rows);
+      } else {
+        exportTableAsCsv(headers, rows, "customers");
+      }
+      setExportDropdownOpen(false);
+    } catch (err) {
+      setExportError(
+        err instanceof Error ? err.message : "Failed to export customers.",
+      );
+    }
+  }
+
   return (
     <section className="content-panel content-panel--actions">
-      <div className="action-row">
-        <button
-          type="button"
-          className="action-button"
-          onClick={() => {
-            setTableView("all");
-            setSelectedIds([]);
-            setPage(1);
-          }}
-          disabled={!ready}
-        >
-          See All
-        </button>
-        <button
-          type="button"
-          className="action-button"
-          onClick={() => setIsNewCustomerOpen(true)}
-          disabled={!ready}
-        >
-          New Customer
-        </button>
-      </div>
-
-      {ready ? (
-        <div className="table-toolbar customer-toolbar">
-          <label className="field history-search-field">
-            <span className="field-label">Search</span>
-            <input
-              ref={searchInputRef}
-              className="field-input"
-              type="search"
-              placeholder="ID, name, AP email, POC, address…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          <label className="field customer-sort-field">
-            <span className="field-label">Sort</span>
-            <select
-              className="field-input"
-              value={sort}
-              onChange={(event) =>
-                setSort(event.target.value as CustomerSort)
-              }
-            >
-              <option value="name">Alphabetically — Name</option>
-              <option value="id">Alphabetically — ID</option>
-              <option value="newest">Newest First</option>
-            </select>
-          </label>
-        </div>
-      ) : null}
-
-      {error ? (
-        <p className="form-message error" role="alert">
-          {error}
-        </p>
-      ) : null}
-
-      {!ready ? (
-        <p className="table-empty">Loading saved customers…</p>
-      ) : tableView && visibleCustomers.length > 0 ? (
-        <>
-          <div className="table-toolbar">
+      <div className="action-row naming-action-row customer-action-row">
+        {ready ? (
+          <div className="naming-filters-bar customer-inline-filters">
+            <label className="field customer-sort-field">
+              <span className="visually-hidden">Sort</span>
+              <select
+                className="field-input"
+                value={sort}
+                aria-label="Sort"
+                onChange={(event) => {
+                  setSort(event.target.value as CustomerSort);
+                  setPage(1);
+                }}
+              >
+                <option value="name">Alphabetically — Name</option>
+                <option value="id">Alphabetically — ID</option>
+                <option value="newest">Newest First</option>
+              </select>
+            </label>
+            <label className="field history-search-field">
+              <span className="visually-hidden">Search</span>
+              <input
+                ref={searchInputRef}
+                className="field-input"
+                type="search"
+                placeholder="Customer ID, name…"
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
+              />
+            </label>
+          </div>
+        ) : (
+          <div className="customer-inline-filters" />
+        )}
+        <div className="naming-action-right" ref={exportMenuRef}>
+          {ready ? (
             <button
               type="button"
               className="button danger"
@@ -398,13 +432,99 @@ export function CustomerNamePanel() {
               Delete
               {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
             </button>
-          </div>
+          ) : null}
+          <button
+            type="button"
+            className="action-button"
+            aria-pressed={tableView === "all"}
+            onClick={() => {
+              setTableView("all");
+              setSelectedIds([]);
+              setPage(1);
+            }}
+            disabled={!ready}
+          >
+            See All
+          </button>
+          <button
+            type="button"
+            className="action-button"
+            onClick={() => setIsNewCustomerOpen(true)}
+            disabled={!ready}
+          >
+            New Customer
+          </button>
+          {ready ? (
+            <>
+              <button
+                type="button"
+                className="action-button"
+                disabled={sortedVisibleCustomers.length === 0}
+                aria-expanded={exportDropdownOpen}
+                aria-controls={exportMenuId}
+                onClick={() => setExportDropdownOpen((open) => !open)}
+              >
+                Export
+              </button>
+              {exportDropdownOpen ? (
+                <div
+                  id={exportMenuId}
+                  className="filter-dropdown filter-dropdown--export"
+                  role="menu"
+                  aria-label="Export customers"
+                >
+                  <button
+                    type="button"
+                    className="export-menu-item"
+                    role="menuitem"
+                    onClick={() => handleExport("excel")}
+                  >
+                    Export as Excel
+                  </button>
+                  <button
+                    type="button"
+                    className="export-menu-item"
+                    role="menuitem"
+                    onClick={() => handleExport("pdf")}
+                  >
+                    Export as PDF
+                  </button>
+                  <button
+                    type="button"
+                    className="export-menu-item"
+                    role="menuitem"
+                    onClick={() => handleExport("csv")}
+                  >
+                    Export as CSV
+                  </button>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </div>
+      </div>
 
-          <div className="table-wrap">
-            <table className="projects-table">
+      {error ? (
+        <p className="form-message error" role="alert">
+          {error}
+        </p>
+      ) : null}
+
+      {exportError ? (
+        <p className="form-message error" role="alert">
+          {exportError}
+        </p>
+      ) : null}
+
+      {!ready ? (
+        <p className="table-empty">Loading saved customers…</p>
+      ) : tableView && visibleCustomers.length > 0 ? (
+        <>
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
+            <table className="projects-table projects-table--customer-sticky">
               <thead>
                 <tr>
-                  <th className="col-check">
+                  <th className="col-check col-sticky col-sticky-check">
                     <input
                       type="checkbox"
                       checked={allVisibleSelected}
@@ -412,8 +532,8 @@ export function CustomerNamePanel() {
                       aria-label="Select all customers on this page"
                     />
                   </th>
-                  <th>Customer ID</th>
-                  <th>Customer Name</th>
+                  <th className="col-sticky col-sticky-id">Customer ID</th>
+                  <th className="col-sticky col-sticky-name">Customer Name</th>
                   <th>Color</th>
                   <th>AP Email</th>
                   <th>POC Name</th>
@@ -445,7 +565,7 @@ export function CustomerNamePanel() {
                         key={customer.id}
                         className={isSelected ? "row-selected" : undefined}
                       >
-                        <td className="col-check">
+                        <td className="col-check col-sticky col-sticky-check">
                           <input
                             type="checkbox"
                             checked={isSelected}
@@ -453,12 +573,12 @@ export function CustomerNamePanel() {
                             aria-label={`Select ${customer.customerName || customer.customerId}`}
                           />
                         </td>
-                        <td className="customer-id-name-cell">
+                        <td className="customer-id-name-cell col-sticky col-sticky-id">
                           <span style={nameColor ? { color: nameColor } : undefined}>
                             {customer.customerId}
                           </span>
                         </td>
-                        <td className="customer-id-name-cell">
+                        <td className="customer-id-name-cell col-sticky col-sticky-name">
                           <span style={nameColor ? { color: nameColor } : undefined}>
                             {customer.customerName}
                           </span>
@@ -504,7 +624,7 @@ export function CustomerNamePanel() {
             </table>
           </div>
 
-          {sortedVisibleCustomers.length > PAGE_SIZE ? (
+          {sortedVisibleCustomers.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -520,7 +640,7 @@ export function CustomerNamePanel() {
                   {" "}
                   ({pageStart + 1}–
                   {Math.min(
-                    pageStart + PAGE_SIZE,
+                    pageStart + pageSize,
                     sortedVisibleCustomers.length,
                   )}{" "}
                   of {sortedVisibleCustomers.length})

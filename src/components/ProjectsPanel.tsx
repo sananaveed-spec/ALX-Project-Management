@@ -50,8 +50,7 @@ import {
   type StatusMenuEntry,
 } from "@/lib/project-status-menu";
 import { StatusMenuPicker } from "@/components/StatusMenuPicker";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 /**
  * Temporary: status change skips PM Action popup + auto reminder dates
@@ -288,6 +287,12 @@ export function ProjectsPanel() {
   const [searchQuery, setSearchQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 72, minRows: 4, maxRows: 40 },
+    ready,
+  );
   /** UniqueID → engineer from Project Naming (source of truth for display). */
   const [namingEngineerByUniqueId, setNamingEngineerByUniqueId] = useState<
     Record<string, string>
@@ -1096,6 +1101,10 @@ export function ProjectsPanel() {
     selectedStatuses,
     selectedInvoiced,
     selectedPriorities,
+    pageSize,
+    searchQuery,
+    sort,
+    groupBy,
   ]);
 
   function toggleCustomerId(customerId: string) {
@@ -2075,13 +2084,13 @@ export function ProjectsPanel() {
     );
   }
 
-  const totalPages = Math.max(1, Math.ceil(sortedFilteredRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(sortedFilteredRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const pageStart = (currentPage - 1) * pageSize;
   const isGrouped = groupBy !== "none";
   const pageRows = isGrouped
     ? sortedFilteredRows
-    : sortedFilteredRows.slice(pageStart, pageStart + PAGE_SIZE);
+    : sortedFilteredRows.slice(pageStart, pageStart + pageSize);
 
   const groupedRows = useMemo(() => {
     if (!isGrouped) {
@@ -2421,44 +2430,8 @@ export function ProjectsPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      {ready ? (
-        <div className="table-toolbar customer-toolbar">
-          <label className="field history-search-field">
-            <span className="field-label">Search</span>
-            <input
-              ref={searchInputRef}
-              className="field-input"
-              type="search"
-              placeholder="ID, customer, project name, engineer, status…"
-              value={searchQuery}
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-                setPage(1);
-              }}
-            />
-          </label>
-          <label className="field customer-sort-field">
-            <span className="field-label">Sort</span>
-            <select
-              className="field-input"
-              value={sort}
-              onChange={(event) => {
-                setSort(event.target.value as ListSort);
-                setPage(1);
-              }}
-            >
-              {LIST_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      ) : null}
-
-      <div className="projects-filters-bar">
-        <div className="projects-filters-left">
+      <div className="action-row naming-action-row">
+        <div className="projects-filters-left naming-action-filters">
           <span className="projects-filters-label">Filters</span>
           <div className="filter-chip" ref={customerFilterRef}>
           <button
@@ -3077,26 +3050,7 @@ export function ProjectsPanel() {
         </div>
         </div>
 
-        <div className="projects-filters-right" ref={exportMenuRef}>
-          <label className="group-toggle">
-            <span>Group by</span>
-            <select
-              className="field-input field-select group-select"
-              value={groupBy}
-              disabled={!ready}
-              onChange={(event) => {
-                setGroupBy(
-                  event.target.value as "none" | "client" | "projectName",
-                );
-                setExpandedGroups([]);
-                setPage(1);
-              }}
-            >
-              <option value="none">None</option>
-              <option value="client">Client</option>
-              <option value="projectName">Project Name</option>
-            </select>
-          </label>
+        <div className="naming-action-right" ref={exportMenuRef}>
           <button
             type="button"
             className="button danger"
@@ -3108,7 +3062,7 @@ export function ProjectsPanel() {
           </button>
           <button
             type="button"
-            className="filter-chip-button projects-export-button"
+            className="action-button"
             disabled={!ready}
             aria-expanded={exportDropdownOpen}
             aria-controls={exportMenuId}
@@ -3160,6 +3114,63 @@ export function ProjectsPanel() {
         </div>
       </div>
 
+      {ready ? (
+        <div className="naming-filters-bar">
+          <label className="field history-search-field">
+            <span className="visually-hidden">Search</span>
+            <input
+              ref={searchInputRef}
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, engineer, status…"
+              aria-label="Search"
+              value={searchQuery}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setPage(1);
+              }}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="visually-hidden">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              aria-label="Sort"
+              onChange={(event) => {
+                setSort(event.target.value as ListSort);
+                setPage(1);
+              }}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field naming-group-field">
+            <span className="visually-hidden">Group by</span>
+            <select
+              className="field-input field-select"
+              value={groupBy}
+              aria-label="Group by"
+              onChange={(event) => {
+                setGroupBy(
+                  event.target.value as "none" | "client" | "projectName",
+                );
+                setExpandedGroups([]);
+                setPage(1);
+              }}
+            >
+              <option value="none">Group by - None</option>
+              <option value="client">Group by - Client</option>
+              <option value="projectName">Group by Project</option>
+            </select>
+          </label>
+        </div>
+      ) : null}
+
       {exportError ? (
         <p className="form-message error" role="alert">
           {exportError}
@@ -3176,7 +3187,12 @@ export function ProjectsPanel() {
         <p className="table-empty">Loading projects…</p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div
+            className={
+              isGrouped ? "table-wrap" : "table-wrap table-wrap--fit-page"
+            }
+            ref={tableWrapRef}
+          >
             <table className="projects-table projects-table--wide projects-table--with-check">
               <thead>
                 <tr>
@@ -3258,7 +3274,7 @@ export function ProjectsPanel() {
             </table>
           </div>
 
-          {!isGrouped && sortedFilteredRows.length > PAGE_SIZE ? (
+          {!isGrouped && sortedFilteredRows.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -3273,7 +3289,7 @@ export function ProjectsPanel() {
                 <span className="pagination-range">
                   {" "}
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, sortedFilteredRows.length)} of{" "}
+                  {Math.min(pageStart + pageSize, sortedFilteredRows.length)} of{" "}
                   {sortedFilteredRows.length})
                 </span>
               </span>

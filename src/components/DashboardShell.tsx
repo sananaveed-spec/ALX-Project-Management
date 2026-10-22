@@ -17,19 +17,6 @@ type DashboardShellProps = {
   userName?: string | null;
 };
 
-const TAB_TITLES: Record<DashboardTab, string> = {
-  naming: "Project Naming",
-  customers: "Customer Name",
-  details: "Active Projects",
-  statusMenu: "Lookup Data",
-  readyToInvoice: "Ready to Invoice",
-  todayToDo: "Today To-Do List",
-  projectHistory: "Project History",
-  completedProjects: "Completed Projects",
-  invoicingHistory: "Invoicing History",
-  engineerLoad: "Engineer Load",
-};
-
 export function DashboardShell({ userName }: DashboardShellProps) {
   const [activeTab, setActiveTab] = useState<DashboardTab>("naming");
   const isEngineerLoad = activeTab === "engineerLoad";
@@ -47,13 +34,6 @@ export function DashboardShell({ userName }: DashboardShellProps) {
       />
       <main className="main-pane">
         <div className="dashboard-main">
-          <header className="page-header">
-            <div>
-              <p className="eyebrow">AllumiaX Project</p>
-              <h1>{TAB_TITLES[activeTab]}</h1>
-            </div>
-          </header>
-
           <div className="dashboard-body">
             {activeTab === "naming" ? (
               <ProjectNamingPanel />

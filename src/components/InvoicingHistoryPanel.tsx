@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   filterInvoicingHistoryRows,
   partialInvoicesDisplay,
@@ -11,8 +11,7 @@ import {
   sortByListSort,
   type ListSort,
 } from "@/lib/list-sort";
-
-const PAGE_SIZE = 50;
+import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
   "ID",
@@ -52,6 +51,12 @@ export function InvoicingHistoryPanel() {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
+  const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const pageSize = useFitPageSize(
+    tableWrapRef,
+    { rowHeight: 42, minRows: 6, maxRows: 50 },
+    ready,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -99,12 +104,12 @@ export function InvoicingHistoryPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort]);
+  }, [query, sort, pageSize]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleRows.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
-  const pageStart = (currentPage - 1) * PAGE_SIZE;
-  const pageRows = visibleRows.slice(pageStart, pageStart + PAGE_SIZE);
+  const pageStart = (currentPage - 1) * pageSize;
+  const pageRows = visibleRows.slice(pageStart, pageStart + pageSize);
 
   return (
     <section className="content-panel content-panel--actions">
@@ -147,7 +152,7 @@ export function InvoicingHistoryPanel() {
         <p className="table-empty">Loading invoicing history…</p>
       ) : (
         <>
-          <div className="table-wrap">
+          <div className="table-wrap table-wrap--fit-page" ref={tableWrapRef}>
             <table className="projects-table projects-table--wide">
               <thead>
                 <tr>
@@ -207,7 +212,7 @@ export function InvoicingHistoryPanel() {
             </table>
           </div>
 
-          {visibleRows.length > PAGE_SIZE ? (
+          {visibleRows.length > pageSize ? (
             <div className="pagination-bar">
               <button
                 type="button"
@@ -221,7 +226,7 @@ export function InvoicingHistoryPanel() {
                 Page {currentPage} of {totalPages}
                 <span className="pagination-range">
                   ({pageStart + 1}–
-                  {Math.min(pageStart + PAGE_SIZE, visibleRows.length)} of{" "}
+                  {Math.min(pageStart + pageSize, visibleRows.length)} of{" "}
                   {visibleRows.length})
                 </span>
               </span>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AC_COURT_ALX,
   AC_COURT_CLIENT,
@@ -63,7 +64,12 @@ export function StatusAdminPanel() {
   const [error, setError] = useState<string | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [expandedGroups, setExpandedGroups] = useState<string[]>([]);
+  const [mounted, setMounted] = useState(false);
   const editorTitleId = useId();
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,26 +261,26 @@ export function StatusAdminPanel() {
 
   return (
     <section className="content-panel content-panel--actions content-panel--status-admin">
-      <div className="table-toolbar customer-toolbar">
-        <p className="dialog-subtitle" style={{ margin: 0 }}>
+      <div className="action-row naming-action-row">
+        <p className="dialog-subtitle status-admin-summary" style={{ margin: 0 }}>
           {ready
             ? `${groupCount} parent group${groupCount === 1 ? "" : "s"}, ${leafCount} direct status${leafCount === 1 ? "" : "es"}`
             : "Loading…"}
         </p>
-        <div className="toolbar-actions">
+        <div className="naming-action-right">
           <button
             type="button"
-            className="button secondary"
+            className="action-button"
             disabled={!ready || saving}
             onClick={() =>
               setEditor({ mode: "add-group", label: "" })
             }
           >
-            Add parent
+            Add Parent
           </button>
           <button
             type="button"
-            className="button primary"
+            className="action-button"
             disabled={!ready || saving}
             onClick={() =>
               setEditor({
@@ -356,105 +362,126 @@ export function StatusAdminPanel() {
         </div>
       )}
 
-      {editor ? (
-        <div className="dialog-backdrop" role="presentation">
-          <div
-            className="dialog-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={editorTitleId}
-          >
-            <div className="dialog-header">
-              <h2 id={editorTitleId} className="dialog-title">
-                {editorTitle(editor)}
-              </h2>
-              <button
-                type="button"
-                className="dialog-close"
-                aria-label="Close"
-                onClick={() => setEditor(null)}
+      {mounted && editor
+        ? createPortal(
+            <div
+              className="dialog-backdrop"
+              role="presentation"
+              onClick={(event) => {
+                if (event.target === event.currentTarget && !saving) {
+                  setEditor(null);
+                }
+              }}
+            >
+              <div
+                className="dialog-panel status-admin-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={editorTitleId}
               >
-                ×
-              </button>
-            </div>
-
-            {editor.mode === "add-group" || editor.mode === "edit-group" ? (
-              <label className="field">
-                <span className="field-label">Parent label</span>
-                <input
-                  className="field-input"
-                  value={editor.label}
-                  onChange={(event) =>
-                    setEditor({ ...editor, label: event.target.value })
-                  }
-                  placeholder="e.g. RFI 1-6"
-                  autoFocus
-                />
-              </label>
-            ) : editor.mode === "add-leaf" ||
-              editor.mode === "edit-leaf" ||
-              editor.mode === "add-child" ||
-              editor.mode === "edit-child" ? (
-              <>
-                <label className="field">
-                  <span className="field-label">
-                    {editor.mode === "add-child" || editor.mode === "edit-child"
-                      ? "Sub-item value"
-                      : "Status value"}
-                  </span>
-                  <input
-                    className="field-input"
-                    value={editor.value}
-                    onChange={(event) =>
-                      setEditor({ ...editor, value: event.target.value })
-                    }
-                    placeholder="e.g. RFI 1 Sent"
-                    autoFocus
-                  />
-                </label>
-                <label className="field">
-                  <span className="field-label">A/C Court</span>
-                  <select
-                    className="field-input field-select"
-                    value={editor.court}
-                    onChange={(event) =>
-                      setEditor({
-                        ...editor,
-                        court: event.target.value as StatusCourt,
-                      })
-                    }
+                <div className="dialog-header">
+                  <div>
+                    <h2 id={editorTitleId} className="dialog-title">
+                      {editorTitle(editor)}
+                    </h2>
+                    <p className="dialog-subtitle">
+                      {editorSubtitle(editor)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className="dialog-close"
+                    aria-label="Close"
+                    disabled={saving}
+                    onClick={() => setEditor(null)}
                   >
-                    {COURT_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </>
-            ) : null}
+                    ×
+                  </button>
+                </div>
 
-            <div className="dialog-actions">
-              <button
-                type="button"
-                className="button secondary"
-                disabled={saving}
-                onClick={() => setEditor(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button primary"
-                disabled={saving}
-                onClick={() => submitEditor()}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
+                <div className="dialog-form">
+                  {editor.mode === "add-group" ||
+                  editor.mode === "edit-group" ? (
+                    <label className="field">
+                      <span className="field-label">Parent Label</span>
+                      <input
+                        className="field-input"
+                        value={editor.label}
+                        onChange={(event) =>
+                          setEditor({ ...editor, label: event.target.value })
+                        }
+                        placeholder="e.g. RFI 1-6"
+                        autoFocus
+                      />
+                    </label>
+                  ) : editor.mode === "add-leaf" ||
+                    editor.mode === "edit-leaf" ||
+                    editor.mode === "add-child" ||
+                    editor.mode === "edit-child" ? (
+                    <>
+                      <label className="field">
+                        <span className="field-label">
+                          {editor.mode === "add-child" ||
+                          editor.mode === "edit-child"
+                            ? "Sub-item Value"
+                            : "Status Value"}
+                        </span>
+                        <input
+                          className="field-input"
+                          value={editor.value}
+                          onChange={(event) =>
+                            setEditor({ ...editor, value: event.target.value })
+                          }
+                          placeholder="e.g. PIN 70"
+                          autoFocus
+                        />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">A/C Court</span>
+                        <select
+                          className="field-input field-select"
+                          value={editor.court}
+                          onChange={(event) =>
+                            setEditor({
+                              ...editor,
+                              court: event.target.value as StatusCourt,
+                            })
+                          }
+                        >
+                          {COURT_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </>
+                  ) : null}
+
+                  <div className="dialog-actions">
+                    <button
+                      type="button"
+                      className="button secondary"
+                      disabled={saving}
+                      onClick={() => setEditor(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="button primary"
+                      disabled={saving}
+                      onClick={() => submitEditor()}
+                    >
+                      {saving ? "Saving…" : "Save"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </section>
   );
 }
@@ -462,17 +489,31 @@ export function StatusAdminPanel() {
 function editorTitle(editor: EditorState) {
   switch (editor.mode) {
     case "add-group":
-      return "Add parent";
+      return "Add Parent";
     case "edit-group":
-      return "Edit parent";
+      return "Edit Parent";
     case "add-leaf":
-      return "Add direct status";
+      return "Add Direct Status";
     case "edit-leaf":
-      return "Edit direct status";
+      return "Edit Direct Status";
     case "add-child":
-      return "Add sub-item";
+      return "Add Sub-item";
     case "edit-child":
-      return "Edit sub-item";
+      return "Edit Sub-item";
+  }
+}
+
+function editorSubtitle(editor: EditorState) {
+  switch (editor.mode) {
+    case "add-group":
+    case "edit-group":
+      return "Parents group related statuses. They are not selectable themselves.";
+    case "add-leaf":
+    case "edit-leaf":
+      return "A standalone status shown in Active Projects (not under a parent).";
+    case "add-child":
+    case "edit-child":
+      return "A selectable status nested under its parent group.";
   }
 }
 
@@ -527,7 +568,7 @@ function StatusGroupCard({
             disabled={disabled}
             onClick={onAddChild}
           >
-            Add sub-item
+            Add Sub-item
           </button>
           <button
             type="button"

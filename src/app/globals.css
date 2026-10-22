@@ -274,9 +274,17 @@ h2,
 .brand-block {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.35rem;
-  padding: 0 0.15rem;
+  align-items: stretch;
+  gap: 0.45rem;
+  padding: 0;
+}
+
+.brand-logo {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
 }
 
 .brand {
@@ -290,7 +298,7 @@ h2,
   margin: 0;
   color: var(--sidebar-muted);
   font-size: 0.85rem;
-  padding-left: 0.1rem;
+  padding-left: 0.15rem;
 }
 
 .nav-list {
@@ -445,7 +453,7 @@ h2,
   overflow: hidden;
 }
 
-.content-panel--status-admin > .table-toolbar,
+.content-panel--status-admin > .naming-action-row,
 .content-panel--status-admin > .form-message {
   flex-shrink: 0;
 }
@@ -461,10 +469,33 @@ h2,
   font-size: 0.82rem;
 }
 
-.content-panel--status-admin .button {
-  font-size: 0.78rem;
-  padding: 0.35rem 0.65rem;
+.content-panel--status-admin .naming-action-row {
+  margin-bottom: 0.35rem;
+}
+
+.content-panel--status-admin .status-admin-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  align-self: center;
+}
+
+.content-panel--status-admin .status-admin-actions {
+  gap: 0.4rem;
+}
+
+.content-panel--status-admin .status-admin-actions .button {
   min-height: 1.85rem;
+  height: 1.85rem;
+  min-width: auto;
+  padding: 0 0.65rem;
+  border-radius: 0.4rem;
+  font-size: 0.78rem;
+  font-weight: 500;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
 }
 
 .content-panel--status-admin .status-admin-expand strong,
@@ -488,6 +519,47 @@ h2,
 .content-panel--status-admin .field-input {
   font-size: 0.82rem;
   padding: 0.4rem 0.55rem;
+}
+
+.status-admin-dialog {
+  width: min(100%, 30rem);
+}
+
+.status-admin-dialog .dialog-header {
+  margin-bottom: 0.75rem;
+  align-items: flex-start;
+}
+
+.status-admin-dialog .dialog-title {
+  margin-bottom: 0.35rem;
+}
+
+.status-admin-dialog .dialog-subtitle {
+  margin: 0;
+  max-width: 24rem;
+  line-height: 1.4;
+}
+
+.status-admin-dialog .dialog-form {
+  gap: 1rem;
+}
+
+.status-admin-dialog .dialog-actions {
+  margin-top: 0.35rem;
+  padding-top: 0.15rem;
+}
+
+.status-admin-dialog .dialog-actions .button {
+  min-height: var(--naming-action-height, 2.35rem);
+  height: var(--naming-action-height, 2.35rem);
+  min-width: 6.5rem;
+  padding: 0 1rem;
+  border-radius: 0.45rem;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .section-title {
@@ -520,9 +592,187 @@ h2,
   align-items: flex-end;
 }
 
-.history-search-field {
-  flex: 1 1 16rem;
+.naming-action-row {
+  --naming-action-height: 2.35rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+}
+
+.naming-action-filters {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.naming-action-filters .filter-chip-button {
+  min-height: var(--naming-action-height);
+  height: var(--naming-action-height);
+  padding: 0 0.85rem;
+  box-sizing: border-box;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.customer-action-row {
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.customer-inline-filters {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
   margin: 0;
+  margin-right: auto;
+  gap: 0.75rem;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+.customer-inline-filters .history-search-field {
+  flex: 0 0 25rem;
+  width: 25rem;
+  min-width: 25rem;
+  max-width: 25rem;
+}
+
+.customer-inline-filters .customer-sort-field {
+  flex: 0 0 auto;
+}
+
+.naming-action-right {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  margin-left: auto;
+  z-index: 31;
+}
+
+.customer-action-row .naming-action-right {
+  align-self: center;
+}
+
+.naming-action-right .action-button {
+  flex: 0 0 auto;
+  min-width: 7.5rem;
+  min-height: var(--naming-action-height);
+  height: var(--naming-action-height);
+  padding: 0 0.95rem;
+  border-radius: 0.45rem;
+  border: 1px solid rgba(144, 33, 16, 0.3);
+  background: linear-gradient(
+    180deg,
+    rgba(209, 89, 74, 0.16),
+    rgba(209, 89, 74, 0.07)
+  );
+  color: #000000;
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.naming-action-right .action-button:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    rgba(209, 89, 74, 0.24),
+    rgba(209, 89, 74, 0.12)
+  );
+}
+
+.naming-action-right .button.danger {
+  min-height: var(--naming-action-height);
+  height: var(--naming-action-height);
+  min-width: 5.5rem;
+  padding: 0 0.85rem;
+  border-radius: 0.45rem;
+  font-size: 0.9rem;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.naming-filters-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.naming-chip-filters {
+  align-items: flex-end;
+  margin-bottom: 0;
+}
+
+.naming-filters-meta {
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.naming-filters-meta .naming-group-field,
+.naming-filters-meta .customer-sort-field {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.naming-filters-meta .customer-sort-field .field-input {
+  width: 15.5rem;
+  min-width: 15.5rem;
+}
+
+.naming-filters-meta .naming-group-field .field-input {
+  width: 11.5rem;
+  min-width: 11.5rem;
+}
+
+.naming-filters-bar .history-search-field {
+  flex: 1 1 12rem;
+  min-width: 10rem;
+  margin: 0;
+}
+
+.naming-filters-bar .customer-sort-field,
+.naming-filters-bar .naming-group-field {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.naming-filters-bar .customer-sort-field .field-input {
+  width: 15.5rem;
+  min-width: 15.5rem;
+}
+
+.naming-filters-bar .naming-group-field .field-input {
+  width: 11.5rem;
+  min-width: 11.5rem;
+}
+
+.history-search-field {
+  flex: 1 1 auto;
+  margin: 0;
+  min-width: 0;
 }
 
 .customer-toolbar {
@@ -530,9 +780,13 @@ h2,
 }
 
 .customer-sort-field {
-  flex: 0 1 12rem;
+  flex: 0 0 auto;
   margin: 0;
-  min-width: 11rem;
+}
+
+.customer-sort-field .field-input {
+  width: 15.5rem;
+  min-width: 15.5rem;
 }
 
 .projects-table td.customer-id-name-cell {
@@ -1546,6 +1800,11 @@ button.suggestion-link {
   background: #ffffff;
 }
 
+.table-wrap--fit-page {
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
 .projects-table {
   width: 100%;
   border-collapse: separate;
@@ -1690,6 +1949,151 @@ button.suggestion-link {
   left: 14.75rem;
 }
 
+.projects-table--wide.projects-table--with-check.projects-table--mark-invoiced
+  .col-sticky-check {
+  width: 7.25rem;
+  min-width: 7.25rem;
+  max-width: 7.25rem;
+  white-space: normal;
+  line-height: 1.2;
+  font-size: 0.78rem;
+}
+
+.projects-table--wide.projects-table--with-check.projects-table--mark-invoiced
+  .col-sticky-1 {
+  left: 7.25rem;
+}
+
+.projects-table--wide.projects-table--with-check.projects-table--mark-invoiced
+  .col-sticky-2 {
+  left: 14rem;
+}
+
+.projects-table--wide.projects-table--with-check.projects-table--mark-invoiced
+  .col-sticky-3 {
+  left: 19.5rem;
+}
+
+.projects-table--naming-sticky .col-sticky {
+  position: sticky;
+  background: var(--table-sticky);
+}
+
+.projects-table--naming-sticky thead th.col-sticky {
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(
+    180deg,
+    rgba(209, 89, 74, 0.16),
+    rgba(209, 89, 74, 0.07)
+  );
+  background-color: var(--table-head);
+  color: #000000;
+}
+
+.projects-table--naming-sticky tbody td.col-sticky {
+  z-index: 3;
+}
+
+.projects-table--naming-sticky .col-sticky-check {
+  left: 0;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  max-width: 2.25rem;
+  text-align: center;
+  z-index: 4;
+}
+
+.projects-table--naming-sticky thead th.col-sticky-check {
+  z-index: 6;
+}
+
+.projects-table--naming-sticky .col-sticky-name {
+  left: 2.25rem;
+  width: 14rem;
+  min-width: 14rem;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-table--naming-sticky .col-sticky-customer {
+  left: 16.25rem;
+  width: auto;
+  min-width: max-content;
+  max-width: none;
+  white-space: nowrap;
+  box-shadow: 6px 0 10px -6px rgba(15, 40, 30, 0.12);
+}
+
+.projects-table--naming-sticky tbody tr.row-selected td.col-sticky {
+  background: var(--accent-soft);
+}
+
+.projects-table--naming-sticky tbody tr.group-row td {
+  position: sticky;
+  left: 0;
+  z-index: 4;
+  min-width: 23.5rem;
+  background: rgba(15, 110, 86, 0.12);
+}
+
+.projects-table--customer-sticky .col-sticky {
+  position: sticky;
+  background: var(--table-sticky);
+}
+
+.projects-table--customer-sticky thead th.col-sticky {
+  top: 0;
+  z-index: 5;
+  background: linear-gradient(
+    180deg,
+    rgba(209, 89, 74, 0.16),
+    rgba(209, 89, 74, 0.07)
+  );
+  background-color: var(--table-head);
+  color: #000000;
+}
+
+.projects-table--customer-sticky tbody td.col-sticky {
+  z-index: 3;
+}
+
+.projects-table--customer-sticky .col-sticky-check {
+  left: 0;
+  width: 2.25rem;
+  min-width: 2.25rem;
+  max-width: 2.25rem;
+  text-align: center;
+  z-index: 4;
+}
+
+.projects-table--customer-sticky thead th.col-sticky-check {
+  z-index: 6;
+}
+
+.projects-table--customer-sticky .col-sticky-id {
+  left: 2.25rem;
+  width: auto;
+  min-width: 7.5rem;
+  max-width: none;
+  white-space: nowrap;
+}
+
+.projects-table--customer-sticky .col-sticky-name {
+  left: 9.75rem;
+  width: auto;
+  min-width: 14rem;
+  max-width: none;
+  white-space: nowrap;
+  box-shadow: 6px 0 10px -6px rgba(15, 40, 30, 0.12);
+}
+
+.projects-table--customer-sticky tbody tr.row-selected td.col-sticky {
+  background: var(--accent-soft);
+}
+
 .table-empty-cell {
   text-align: center;
   color: var(--muted);
@@ -1766,6 +2170,12 @@ button.suggestion-link {
   height: 1rem;
   cursor: pointer;
   accent-color: var(--accent-2);
+}
+
+.col-text-md {
+  width: 14rem;
+  min-width: 14rem;
+  max-width: 14rem;
 }
 
 .col-actions {

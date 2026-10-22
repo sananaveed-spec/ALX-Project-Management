@@ -29,3 +29,14 @@ export function getMsalConfig(): Configuration {
 export const loginRequest = {
   scopes: ["User.Read"],
 };
+
+/**
+ * SharePoint (AllumiaX Engineering site) — create project folders.
+ * Needs admin consent for Sites.Read.All + Files.ReadWrite.All.
+ * Does NOT need Group.ReadWrite.All (we create folders, not new sites).
+ * Use the same authority as login so MSAL can reuse the signed-in account.
+ */
+export const sharePointRequest = {
+  scopes: ["Sites.Read.All", "Files.ReadWrite.All", "User.Read"],
+  authority: azureAuthority,
+};

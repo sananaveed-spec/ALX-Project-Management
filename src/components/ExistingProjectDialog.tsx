@@ -26,6 +26,7 @@ export type ExistingProjectSaveValues = {
   pmName?: string;
   createOnBasecamp?: boolean;
   createOnAts?: boolean;
+  createOnSharePoint?: boolean;
   /** QB checkbox → Yes / No on Project Naming. */
   qb?: boolean;
 };
@@ -95,6 +96,7 @@ export function ExistingProjectDialog({
   const [basecampConnected, setBasecampConnected] = useState(false);
   const [basecampStatusLoading, setBasecampStatusLoading] = useState(false);
   const [createOnAts, setCreateOnAts] = useState(false);
+  const [createOnSharePoint, setCreateOnSharePoint] = useState(false);
   const [qb, setQb] = useState(false);
   const [atsConfigured, setAtsConfigured] = useState(false);
   const [atsStatusLoading, setAtsStatusLoading] = useState(false);
@@ -162,6 +164,7 @@ export function ExistingProjectDialog({
     setUniqueIdError(null);
     setCreateOnBasecamp(false);
     setCreateOnAts(false);
+    setCreateOnSharePoint(false);
     setQb(false);
     setEngineer("");
     setPmName("");
@@ -330,6 +333,7 @@ export function ExistingProjectDialog({
     setPmName(project.pmName?.trim() ?? "");
     setCreateOnBasecamp(false);
     setCreateOnAts(false);
+    setCreateOnSharePoint(false);
     setQb(false);
     setQuery(project.fullName || `${project.uniqueId} - ${project.projectName}`);
     setShowSuggestions(false);
@@ -400,6 +404,7 @@ export function ExistingProjectDialog({
         pmName: pmName.trim() || undefined,
         createOnBasecamp,
         createOnAts,
+        createOnSharePoint,
         qb,
       });
       if (result === false) {
@@ -451,6 +456,7 @@ export function ExistingProjectDialog({
                   setPmName("");
                   setCreateOnBasecamp(false);
                   setCreateOnAts(false);
+                  setCreateOnSharePoint(false);
                   setShowSuggestions(true);
                 }}
                 onFocus={() => {
@@ -747,6 +753,26 @@ export function ExistingProjectDialog({
                   and TIMESHEETS_ORGANIZATION_ID in .env.local.
                 </span>
               )
+            ) : null}
+          </div>
+
+          <div className="field">
+            <label className="checkbox-row">
+              <input
+                type="checkbox"
+                checked={createOnSharePoint}
+                onChange={(event) =>
+                  setCreateOnSharePoint(event.target.checked)
+                }
+                disabled={!selectedSourceId}
+              />
+              <span>Create on SharePoint?</span>
+            </label>
+            {createOnSharePoint ? (
+              <span className="field-hint">
+                Creates Documents/{"{yymmdd}"} - {"{Project Name}"} -{" "}
+                {"{UniqueID}"}/{"{Project Name}"} on AllumiaX Engineering.
+              </span>
             ) : null}
           </div>
 
