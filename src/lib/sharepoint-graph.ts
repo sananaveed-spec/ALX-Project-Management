@@ -16,7 +16,7 @@ export function sharePointSiteHost(): string {
 
 export function sharePointSitePath(): string {
   const raw =
-    process.env.NEXT_PUBLIC_SHAREPOINT_SITE_PATH?.trim() || "/sites/engineering";
+    process.env.NEXT_PUBLIC_SHAREPOINT_SITE_PATH?.trim() || "/sites/EngProj";
   return raw.startsWith("/") ? raw : `/${raw}`;
 }
 
