@@ -28,10 +28,10 @@ export function isSharePointConfigured(): boolean {
   return Boolean(sharePointSiteId() || (sharePointSiteHost() && sharePointSitePath()));
 }
 
-/** Folder-safe SharePoint name (strip illegal characters). */
+/** Folder-safe SharePoint name (strip illegal characters; keep leading #). */
 export function sanitizeSharePointFolderName(raw: string): string {
   return raw
-    .replace(/["*:<>?/\\|#%]/g, " ")
+    .replace(/["*:<>?/\\|%]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .replace(/^\.+|\.+$/g, "")
@@ -46,16 +46,29 @@ export function formatSharePointDateStamp(date = new Date()): string {
   return `${yy}${mm}${dd}`;
 }
 
-/** Main folder: `{yymmdd} - {Project Name} - {UniqueID}` */
+const PROJECTS_ROOT_FOLDER = "#Projects";
+
+/** Customer library folder: `#ABE` */
+export function buildSharePointCustomerFolderName(customer: string): string {
+  const code = sanitizeSharePointFolderName(customer).replace(/^#+/, "");
+  return sanitizeSharePointFolderName(`#${code || "Customer"}`);
+}
+
+/**
+ * Leaf folder: `{Year}{No} - {Project Name}`
+ * e.g. Year 26 + No 003 → `26003 - testnewsite`
+ */
 export function buildProjectSharePointFolderName(input: {
   projectName: string;
-  uniqueId: string;
-  date?: Date;
+  year: string;
+  no: string;
 }): string {
-  const stamp = formatSharePointDateStamp(input.date);
-  const projectName = sanitizeSharePointFolderName(input.projectName) || "Project";
-  const uniqueId = sanitizeSharePointFolderName(input.uniqueId) || "ID";
-  return sanitizeSharePointFolderName(`${stamp} - ${projectName} - ${uniqueId}`);
+  const year = sanitizeSharePointFolderName(input.year).replace(/\D/g, "").slice(-2);
+  const no = sanitizeSharePointFolderName(input.no).replace(/\D/g, "");
+  const projectName =
+    sanitizeSharePointFolderName(input.projectName) || "Project";
+  const stamp = `${year || "00"}${no || "000"}`;
+  return sanitizeSharePointFolderName(`${stamp} - ${projectName}`);
 }
 
 function sharePointAuthErrorMessage(error: unknown): string {
@@ -262,13 +275,20 @@ async function ensureChildFolder(
 
 /**
  * Create under Shared Documents:
- *   `{yymmdd} - {Project Name} - {UniqueID}/`
- *     `{Project Name}/`
+ *   `#Projects/`
+ *     `#{Customer}/`
+ *       `{Year}{No} - {Project Name}/`
+ * e.g. `#Projects/#ABE/26003 - testnewsite/`
  */
 export async function createProjectSharePointFolders(
   instance: IPublicClientApplication,
   account: AccountInfo,
-  input: { projectName: string; uniqueId: string },
+  input: {
+    projectName: string;
+    customer: string;
+    year: string;
+    no: string;
+  },
 ): Promise<{ folderName: string; webUrl: string }> {
   if (!isSharePointConfigured()) {
     throw new Error(
@@ -276,8 +296,7 @@ export async function createProjectSharePointFolders(
     );
   }
 
-  const projectName =
-    sanitizeSharePointFolderName(input.projectName) || "Project";
+  const customerFolderName = buildSharePointCustomerFolderName(input.customer);
   const folderName = buildProjectSharePointFolderName(input);
   const accessToken = await acquireSharePointToken(instance, account);
   const siteId = await resolveSiteId(accessToken);
@@ -293,24 +312,37 @@ export async function createProjectSharePointFolders(
 
   const rootChildrenUrl = `${GRAPH}/drives/${driveId}/root/children?$select=id,name,folder&$top=200`;
   const rootFolders = await listChildFolderNames(accessToken, rootChildrenUrl);
-  const projectFolderId = await ensureChildFolder(
+  const projectsRootId = await ensureChildFolder(
     accessToken,
     rootChildrenUrl,
     `${GRAPH}/drives/${driveId}/root/children`,
-    folderName,
+    PROJECTS_ROOT_FOLDER,
     rootFolders,
   );
 
-  const projectChildrenUrl = `${GRAPH}/drives/${driveId}/items/${projectFolderId}/children?$select=id,name,folder&$top=200`;
+  const projectsChildrenUrl = `${GRAPH}/drives/${driveId}/items/${projectsRootId}/children?$select=id,name,folder&$top=200`;
+  const customerFolders = await listChildFolderNames(
+    accessToken,
+    projectsChildrenUrl,
+  );
+  const customerFolderId = await ensureChildFolder(
+    accessToken,
+    projectsChildrenUrl,
+    `${GRAPH}/drives/${driveId}/items/${projectsRootId}/children`,
+    customerFolderName,
+    customerFolders,
+  );
+
+  const customerChildrenUrl = `${GRAPH}/drives/${driveId}/items/${customerFolderId}/children?$select=id,name,folder&$top=200`;
   const projectFolders = await listChildFolderNames(
     accessToken,
-    projectChildrenUrl,
+    customerChildrenUrl,
   );
-  await ensureChildFolder(
+  const projectFolderId = await ensureChildFolder(
     accessToken,
-    projectChildrenUrl,
-    `${GRAPH}/drives/${driveId}/items/${projectFolderId}/children`,
-    projectName,
+    customerChildrenUrl,
+    `${GRAPH}/drives/${driveId}/items/${customerFolderId}/children`,
+    folderName,
     projectFolders,
   );
 

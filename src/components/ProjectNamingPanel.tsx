@@ -369,6 +369,8 @@ export function ProjectNamingPanel() {
     projectName: string;
     customer: string;
     awardDate: string;
+    year: string;
+    no: string;
     uniqueId: string;
     createOnBasecamp?: boolean;
     createOnAts?: boolean;
@@ -498,7 +500,9 @@ export function ProjectNamingPanel() {
         }
         await createProjectSharePointFolders(instance, account, {
           projectName: values.projectName,
-          uniqueId: values.uniqueId,
+          customer: values.customer,
+          year: values.year,
+          no: values.no,
         });
       } catch (sharePointError) {
         setError(

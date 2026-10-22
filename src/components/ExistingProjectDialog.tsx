@@ -770,8 +770,8 @@ export function ExistingProjectDialog({
             </label>
             {createOnSharePoint ? (
               <span className="field-hint">
-                Creates Documents/{"{yymmdd}"} - {"{Project Name}"} -{" "}
-                {"{UniqueID}"}/{"{Project Name}"} on AllumiaX Engineering.
+                Creates Documents/#Projects/#{"{Customer}"}/{"{Year}"}
+                {"{No}"} - {"{Project Name}"}/ on EngProj.
               </span>
             ) : null}
           </div>

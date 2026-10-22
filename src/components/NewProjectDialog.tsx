@@ -1109,11 +1109,11 @@ export function NewProjectDialog({
               <span className="field-hint">
                 Creates{" "}
                 <code>
-                  Documents/{"{yymmdd}"} - {"{Project Name}"} - {"{UniqueID}"}/
-                  {"{Project Name}"}
+                  Documents/#Projects/#{"{Customer}"}/{"{Year}"}
+                  {"{No}"} - {"{Project Name}"}/
                 </code>{" "}
-                on AllumiaX Engineering. Requires Sites.Read.All +
-                Files.ReadWrite.All (admin consent).
+                on EngProj (e.g. #Projects/#ABE/26003 - testnewsite/). Requires
+                Sites.Read.All + Files.ReadWrite.All (admin consent).
               </span>
             ) : null}
           </div>
