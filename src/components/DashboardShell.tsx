@@ -18,7 +18,7 @@ type DashboardShellProps = {
 };
 
 export function DashboardShell({ userName }: DashboardShellProps) {
-  const [activeTab, setActiveTab] = useState<DashboardTab>("naming");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("todayToDo");
   const isEngineerLoad = activeTab === "engineerLoad";
 
   return (

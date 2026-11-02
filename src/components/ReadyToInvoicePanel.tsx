@@ -246,7 +246,7 @@ export function ReadyToInvoicePanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, pageSize]);
+  }, [query, sort]);
 
   async function persistRow(
     rowId: string,

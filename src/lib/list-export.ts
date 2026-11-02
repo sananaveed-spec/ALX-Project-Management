@@ -1,5 +1,108 @@
 import * as XLSX from "xlsx";
 
+/** File input accept list for Import (Excel + CSV). */
+export const SPREADSHEET_IMPORT_ACCEPT =
+  ".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv";
+
+function isExcelFile(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return (
+    name.endsWith(".xlsx") ||
+    name.endsWith(".xls") ||
+    file.type.includes("spreadsheet") ||
+    file.type.includes("excel")
+  );
+}
+
+/**
+ * Read a CSV or Excel (.xlsx / .xls) file into a grid of string cells.
+ * Excel uses the first sheet.
+ */
+export async function parseSpreadsheetFile(file: File): Promise<string[][]> {
+  if (isExcelFile(file)) {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+    const sheetName = workbook.SheetNames[0];
+    if (!sheetName) {
+      return [];
+    }
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      return [];
+    }
+    const rows = XLSX.utils.sheet_to_json<
+      (string | number | boolean | Date | null)[]
+    >(sheet, {
+      header: 1,
+      defval: "",
+      raw: false,
+    });
+    return rows
+      .map((row) =>
+        (Array.isArray(row) ? row : []).map((cell) =>
+          String(cell ?? "").trim(),
+        ),
+      )
+      .filter((row) => row.some((cell) => cell.length > 0));
+  }
+
+  const text = await file.text();
+  return parseCsvText(text);
+}
+
+function parseCsvText(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
+  const source = text.replace(/^\uFEFF/, "");
+
+  for (let index = 0; index < source.length; index += 1) {
+    const char = source[index]!;
+    if (inQuotes) {
+      if (char === '"') {
+        if (source[index + 1] === '"') {
+          cell += '"';
+          index += 1;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += char;
+      }
+      continue;
+    }
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+    if (char === ",") {
+      row.push(cell.trim());
+      cell = "";
+      continue;
+    }
+    if (char === "\n" || char === "\r") {
+      if (char === "\r" && source[index + 1] === "\n") {
+        index += 1;
+      }
+      row.push(cell.trim());
+      cell = "";
+      if (row.some((value) => value.length > 0)) {
+        rows.push(row);
+      }
+      row = [];
+      continue;
+    }
+    cell += char;
+  }
+
+  row.push(cell.trim());
+  if (row.some((value) => value.length > 0)) {
+    rows.push(row);
+  }
+  return rows;
+}
+
 function escapeCsv(value: string) {
   if (/[",\n\r]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;

@@ -8,6 +8,7 @@ import {
 import {
   ensureCustomerColors,
   findCustomerColorConflict,
+  normalizeCustomer,
   normalizeCustomerColor,
   toDarkCustomerColor,
   type CustomerEntry,
@@ -16,6 +17,8 @@ import {
   exportTableAsCsv,
   exportTableAsExcel,
   exportTableAsPdf,
+  parseSpreadsheetFile,
+  SPREADSHEET_IMPORT_ACCEPT,
 } from "@/lib/list-export";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
 
@@ -119,9 +122,11 @@ export function CustomerNamePanel() {
   const [sort, setSort] = useState<CustomerSort>("name");
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const exportMenuId = useId();
   const pageSize = useFitPageSize(
     tableWrapRef,
@@ -322,7 +327,7 @@ export function CustomerNamePanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, tableView, pageSize]);
+  }, [query, sort, tableView]);
 
   const totalPages = Math.max(
     1,
@@ -379,6 +384,126 @@ export function CustomerNamePanel() {
       setExportError(
         err instanceof Error ? err.message : "Failed to export customers.",
       );
+    }
+  }
+
+  function openImportPicker() {
+    setExportDropdownOpen(false);
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setExportError(null);
+    setError(null);
+    try {
+      const rows = await parseSpreadsheetFile(file);
+      if (rows.length < 2) {
+        throw new Error(
+          "File must include a header row and at least one data row.",
+        );
+      }
+
+      const headers = rows[0]!.map((header) => header.trim().toLowerCase());
+      const indexOf = (...labels: string[]) =>
+        headers.findIndex((header) => labels.includes(header));
+
+      const idIdx = indexOf("customer id");
+      const nameIdx = indexOf("customer name");
+      const colorIdx = indexOf("color");
+      const emailIdx = indexOf("ap email", "email");
+      const pocNameIdx = indexOf("poc name");
+      const pocEmailIdx = indexOf("poc email");
+      const billToIdx = indexOf("bill to address");
+      const apNumberIdx = indexOf("a/p number", "ap number");
+
+      if (idIdx < 0 && nameIdx < 0) {
+        throw new Error(
+          "No recognized columns. Export first and use those headers.",
+        );
+      }
+
+      const next = [...customers];
+      let created = 0;
+      let updated = 0;
+
+      for (const row of rows.slice(1)) {
+        const customerId = (row[idIdx] ?? "").trim();
+        const customerName = (row[nameIdx] ?? "").trim();
+        if (!customerId && !customerName) {
+          continue;
+        }
+
+        const values = {
+          customerId,
+          customerName,
+          color: (row[colorIdx] ?? "").trim(),
+          email: (row[emailIdx] ?? "").trim(),
+          pocName: (row[pocNameIdx] ?? "").trim(),
+          pocEmail: (row[pocEmailIdx] ?? "").trim(),
+          billToAddress: (row[billToIdx] ?? "").trim(),
+          apNumber: (row[apNumberIdx] ?? "").trim(),
+        };
+
+        const existingIndex = next.findIndex((customer) => {
+          if (
+            customerId &&
+            customer.customerId.trim().toLowerCase() ===
+              customerId.toLowerCase()
+          ) {
+            return true;
+          }
+          return (
+            !customerId &&
+            customer.customerName.trim().toLowerCase() ===
+              customerName.toLowerCase()
+          );
+        });
+
+        if (existingIndex >= 0) {
+          const existing = next[existingIndex]!;
+          next[existingIndex] = normalizeCustomer({
+            ...existing,
+            ...values,
+            id: existing.id,
+            color: values.color || existing.color,
+          });
+          updated += 1;
+        } else {
+          next.push(
+            normalizeCustomer({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              ...values,
+            }),
+          );
+          created += 1;
+        }
+      }
+
+      if (created === 0 && updated === 0) {
+        throw new Error(
+          "No valid rows found. Customer ID or Customer Name is required.",
+        );
+      }
+
+      const ensured = ensureCustomerColors(next);
+      await saveCustomers(ensured.customers);
+      window.alert(
+        `Imported ${created + updated} customer${
+          created + updated === 1 ? "" : "s"
+        } (${created} added, ${updated} updated).`,
+      );
+    } catch (importError) {
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Failed to import customers.",
+      );
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
     }
   }
 
@@ -499,6 +624,26 @@ export function CustomerNamePanel() {
                   </button>
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="action-button"
+                disabled={importing}
+                onClick={openImportPicker}
+              >
+                {importing ? "Importing…" : "Import"}
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept={SPREADSHEET_IMPORT_ACCEPT}
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    void handleImportFile(file);
+                  }
+                }}
+              />
             </>
           ) : null}
         </div>

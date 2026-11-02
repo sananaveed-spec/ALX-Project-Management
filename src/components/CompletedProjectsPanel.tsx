@@ -129,7 +129,7 @@ export function CompletedProjectsPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, pageSize]);
+  }, [query, sort]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);

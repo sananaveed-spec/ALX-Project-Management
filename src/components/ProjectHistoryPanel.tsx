@@ -166,7 +166,7 @@ export function ProjectHistoryPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, pageSize]);
+  }, [query, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, totalPages);

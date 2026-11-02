@@ -12,8 +12,16 @@ import {
   type ListSort,
 } from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
-import { filterTodayToDoRows } from "@/lib/project-history";
+import {
+  filterTodayToDoRows,
+  isPendingOverSevenDays,
+  isPendingReminder,
+  isPendingWithinSevenDays,
+  isTodayReminder,
+} from "@/lib/project-history";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
+
+type ToDoView = "today" | "pending";
 
 const TABLE_HEADERS = [
   "Done",
@@ -74,6 +82,7 @@ export function TodayToDoPanel() {
   const [page, setPage] = useState(1);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
+  const [toDoView, setToDoView] = useState<ToDoView>("today");
   const [wizard, setWizard] = useState<WizardState | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -242,10 +251,13 @@ export function TodayToDoPanel() {
   }
 
   const visibleRows = useMemo(() => {
+    const byView = rows.filter((row) =>
+      toDoView === "today" ? isTodayReminder(row) : isPendingReminder(row),
+    );
     const q = query.trim().toLowerCase();
     const filtered = !q
-      ? rows
-      : rows.filter((row) => {
+      ? byView
+      : byView.filter((row) => {
           const haystack = [
             row.displayId,
             row.customer,
@@ -261,11 +273,11 @@ export function TodayToDoPanel() {
           return haystack.includes(q);
         });
     return sortByListSort(filtered, sort, (row) => row.displayId);
-  }, [rows, query, sort]);
+  }, [rows, query, sort, toDoView]);
 
   useEffect(() => {
     setPage(1);
-  }, [query, sort, pageSize]);
+  }, [query, sort, toDoView]);
 
   const totalPages = Math.max(1, Math.ceil(visibleRows.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -343,7 +355,7 @@ export function TodayToDoPanel() {
   return (
     <section className="content-panel content-panel--actions">
       {ready ? (
-        <div className="action-row">
+        <div className="action-row naming-action-row">
           <label className="field history-search-field">
             <span className="visually-hidden">Search</span>
             <input
@@ -370,15 +382,41 @@ export function TodayToDoPanel() {
               ))}
             </select>
           </label>
-          <button
-            type="button"
-            className="button danger"
-            disabled={selectedIds.length === 0 || saving}
-            onClick={() => void handleDeleteSelected()}
-          >
-            Delete
-            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-          </button>
+          <div className="naming-action-right">
+            <button
+              type="button"
+              className={
+                toDoView === "today"
+                  ? "action-button action-button--pressed"
+                  : "action-button"
+              }
+              aria-pressed={toDoView === "today"}
+              onClick={() => setToDoView("today")}
+            >
+              Today
+            </button>
+            <button
+              type="button"
+              className={
+                toDoView === "pending"
+                  ? "action-button action-button--pressed"
+                  : "action-button"
+              }
+              aria-pressed={toDoView === "pending"}
+              onClick={() => setToDoView("pending")}
+            >
+              Pending
+            </button>
+            <button
+              type="button"
+              className="button danger"
+              disabled={selectedIds.length === 0 || saving}
+              onClick={() => void handleDeleteSelected()}
+            >
+              Delete
+              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -430,7 +468,9 @@ export function TodayToDoPanel() {
                     >
                       {query.trim()
                         ? "No reminders match this search."
-                        : "No due reminders. Set PM Action Items Date on Projects to today or earlier."}
+                        : toDoView === "today"
+                          ? "No reminders due today."
+                          : "No pending reminders (past due dates)."}
                     </td>
                   </tr>
                 ) : (
@@ -439,10 +479,22 @@ export function TodayToDoPanel() {
                       wizard?.rowId === row.id ||
                       (saving && wizard?.rowId === row.id);
                     const isSelected = selectedIds.includes(row.id);
+                    const isOrangeFlag = isPendingWithinSevenDays(row);
+                    const isRedFlag = isPendingOverSevenDays(row);
+                    const rowClass = [
+                      isSelected ? "row-selected" : "",
+                      isRedFlag
+                        ? "row-todo-flag-red"
+                        : isOrangeFlag
+                          ? "row-todo-flag"
+                          : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ");
                     return (
                       <tr
                         key={row.id}
-                        className={isSelected ? "row-selected" : undefined}
+                        className={rowClass || undefined}
                       >
                         <td className="col-check">
                           <input

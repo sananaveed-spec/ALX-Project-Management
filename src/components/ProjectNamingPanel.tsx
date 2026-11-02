@@ -34,13 +34,22 @@ import {
   exportTableAsCsv,
   exportTableAsExcel,
   exportTableAsPdf,
+  parseSpreadsheetFile,
+  SPREADSHEET_IMPORT_ACCEPT,
 } from "@/lib/list-export";
 import {
   normalizeCustomerColor,
   toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
-import { getUniqueIdConflict, normalizeProject, sortProjectsNewestFirst, type ProjectEntry } from "@/lib/projects";
+import {
+  buildFullName,
+  buildUniqueId,
+  getUniqueIdConflict,
+  normalizeProject,
+  sortProjectsNewestFirst,
+  type ProjectEntry,
+} from "@/lib/projects";
 import { createProjectSharePointFolders } from "@/lib/sharepoint-graph";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
 
@@ -61,6 +70,35 @@ const NAMING_EXPORT_HEADERS = [
   "ATS",
   "SharePoint",
 ] as const;
+
+function parseImportAwardDate(value: string): string {
+  const raw = value.trim();
+  if (!raw || raw === "—") {
+    return "";
+  }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return raw;
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return raw;
+  }
+  const year = parsed.getFullYear();
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseYesNoFlag(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+  if (trimmed === "yes" || trimmed === "y" || trimmed === "true") {
+    return "Yes";
+  }
+  if (trimmed === "no" || trimmed === "n" || trimmed === "false") {
+    return "No";
+  }
+  return value.trim() ? "Yes" : "No";
+}
 
 type TableView = "new" | "all";
 
@@ -247,9 +285,11 @@ export function ProjectNamingPanel() {
   const [qbDropdownOpen, setQbDropdownOpen] = useState(false);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const pageSize = useFitPageSize(
     tableWrapRef,
     { rowHeight: 40, minRows: 8, maxRows: 50 },
@@ -1021,10 +1061,6 @@ export function ProjectNamingPanel() {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize]);
-
-  useEffect(() => {
-    setPage(1);
   }, [
     selectedCustomerIds,
     selectedYears,
@@ -1207,6 +1243,199 @@ export function ProjectNamingPanel() {
       setExportError(
         err instanceof Error ? err.message : "Failed to export projects.",
       );
+    }
+  }
+
+  function openImportPicker() {
+    closeOtherFilters("export");
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setExportError(null);
+    setError(null);
+    try {
+      const rows = await parseSpreadsheetFile(file);
+      if (rows.length < 2) {
+        throw new Error(
+          "File must include a header row and at least one data row.",
+        );
+      }
+
+      const headers = rows[0]!.map((header) => header.trim().toLowerCase());
+      const indexOf = (...labels: string[]) =>
+        headers.findIndex((header) => labels.includes(header));
+
+      const projectNameIdx = indexOf("project name");
+      const customerIdx = indexOf("customer");
+      const awardDateIdx = indexOf("award date");
+      const yearIdx = indexOf("year");
+      const noIdx = indexOf("no");
+      const uniqueIdIdx = indexOf("uniqueid", "unique id");
+      const fullNameIdx = indexOf("full name");
+      const engineerIdx = indexOf("engineer");
+      const pmNameIdx = indexOf("pm name");
+      const qbIdx = indexOf("qb");
+      const basecampIdx = indexOf("basecamp");
+      const atsIdx = indexOf("ats");
+      const sharepointIdx = indexOf("sharepoint", "share point");
+
+      if (projectNameIdx < 0 && uniqueIdIdx < 0) {
+        throw new Error(
+          "No recognized columns. Export first and use those headers.",
+        );
+      }
+
+      const next = [...projects];
+      let created = 0;
+      let updated = 0;
+      const syncQueue: {
+        namingProjectId: string;
+        uniqueId: string;
+        customer: string;
+        projectName: string;
+        awardDate: string;
+        engineer?: string;
+        pmName?: string;
+      }[] = [];
+
+      for (const row of rows.slice(1)) {
+        const projectName = (row[projectNameIdx] ?? "").trim();
+        const customer = (row[customerIdx] ?? "").trim();
+        const year = (row[yearIdx] ?? "").trim();
+        const no = (row[noIdx] ?? "").trim();
+        const uniqueId =
+          (row[uniqueIdIdx] ?? "").trim() ||
+          (customer && year && no ? buildUniqueId(customer, year, no) : "");
+        if (!projectName && !uniqueId) {
+          continue;
+        }
+
+        const awardDate = parseImportAwardDate(row[awardDateIdx] ?? "");
+        const engineer = (row[engineerIdx] ?? "").trim();
+        const pmName = (row[pmNameIdx] ?? "").trim();
+        const fullName =
+          (row[fullNameIdx] ?? "").trim() ||
+          buildFullName(uniqueId, projectName);
+
+        const values: Partial<ProjectEntry> = {
+          projectName,
+          customer,
+          awardDate,
+          year,
+          no,
+          uniqueId,
+          fullName,
+          engineer,
+          pmName,
+        };
+        if (qbIdx >= 0) {
+          values.qb = parseYesNoFlag(row[qbIdx] ?? "");
+        }
+        if (basecampIdx >= 0) {
+          values.basecamp = parseYesNoFlag(row[basecampIdx] ?? "");
+        }
+        if (atsIdx >= 0) {
+          values.ats = parseYesNoFlag(row[atsIdx] ?? "");
+        }
+        if (sharepointIdx >= 0) {
+          values.sharepoint = parseYesNoFlag(row[sharepointIdx] ?? "");
+        }
+
+        const existingIndex = next.findIndex((project) => {
+          if (
+            uniqueId &&
+            project.uniqueId.trim().toLowerCase() === uniqueId.toLowerCase()
+          ) {
+            return true;
+          }
+          return (
+            !uniqueId &&
+            project.projectName.trim().toLowerCase() ===
+              projectName.toLowerCase() &&
+            project.customer.trim().toLowerCase() === customer.toLowerCase()
+          );
+        });
+
+        if (existingIndex >= 0) {
+          const existing = next[existingIndex]!;
+          const conflict = getUniqueIdConflict(uniqueId, next, existing.id);
+          if (conflict) {
+            throw new Error(conflict);
+          }
+          const merged = normalizeProject({
+            ...existing,
+            ...values,
+            id: existing.id,
+          });
+          next[existingIndex] = merged;
+          updated += 1;
+          syncQueue.push({
+            namingProjectId: merged.id,
+            uniqueId: merged.uniqueId,
+            customer: merged.customer,
+            projectName: merged.projectName,
+            awardDate: merged.awardDate,
+            engineer: merged.engineer,
+            pmName: merged.pmName,
+          });
+        } else {
+          const conflict = getUniqueIdConflict(uniqueId, next);
+          if (conflict) {
+            throw new Error(conflict);
+          }
+          const createdProject = normalizeProject({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            qb: "No",
+            basecamp: "",
+            ats: "",
+            sharepoint: "",
+            ...values,
+          });
+          next.unshift(createdProject);
+          created += 1;
+          syncQueue.push({
+            namingProjectId: createdProject.id,
+            uniqueId: createdProject.uniqueId,
+            customer: createdProject.customer,
+            projectName: createdProject.projectName,
+            awardDate: createdProject.awardDate,
+            engineer: createdProject.engineer,
+            pmName: createdProject.pmName,
+          });
+        }
+      }
+
+      if (created === 0 && updated === 0) {
+        throw new Error(
+          "No valid rows found. Project Name or UniqueID is required.",
+        );
+      }
+
+      const saved = await saveProjects(next);
+      if (!saved) {
+        return;
+      }
+      for (const item of syncQueue) {
+        await syncProjectsTabRow(item);
+      }
+      window.alert(
+        `Imported ${created + updated} project${
+          created + updated === 1 ? "" : "s"
+        } (${created} added, ${updated} updated).`,
+      );
+    } catch (importError) {
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Failed to import projects.",
+      );
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
     }
   }
 
@@ -1826,6 +2055,26 @@ export function ProjectNamingPanel() {
                   </button>
                 </div>
               ) : null}
+              <button
+                type="button"
+                className="action-button"
+                disabled={importing}
+                onClick={openImportPicker}
+              >
+                {importing ? "Importing…" : "Import"}
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept={SPREADSHEET_IMPORT_ACCEPT}
+                hidden
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) {
+                    void handleImportFile(file);
+                  }
+                }}
+              />
             </>
           ) : null}
         </div>

@@ -24,16 +24,22 @@ import {
   type ListSort,
 } from "@/lib/list-sort";
 import {
+  parseSpreadsheetFile,
+  SPREADSHEET_IMPORT_ACCEPT,
+} from "@/lib/list-export";
+import {
   buildProjectExportRows,
   exportProjectsAsCsv,
   exportProjectsAsExcel,
   exportProjectsAsPdf,
+  PROJECT_EXPORT_HEADERS,
 } from "@/lib/projects-export";
 import {
   isFinalReportSentStatus,
   isFullyInvoiced,
   isPartialOrFullInvoiced,
   isReadyToInvoice,
+  normalizeProjectDetail,
   READY_TO_INVOICE_VALUE,
   remainingInvoicePercent,
   reminderFieldsForStatus,
@@ -290,7 +296,7 @@ export function ProjectsPanel() {
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
   const pageSize = useFitPageSize(
     tableWrapRef,
-    { rowHeight: 72, minRows: 4, maxRows: 40 },
+    { rowHeight: 84, minRows: 3, maxRows: 40, bottomReserve: 18 },
     ready,
   );
   /** UniqueID → engineer from Project Naming (source of truth for display). */
@@ -328,6 +334,7 @@ export function ProjectsPanel() {
   const [priorityDropdownOpen, setPriorityDropdownOpen] = useState(false);
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [multilineEditor, setMultilineEditor] =
     useState<MultilineEditorState | null>(null);
@@ -342,6 +349,7 @@ export function ProjectsPanel() {
     useState<TerminatedCourtPromptState | null>(null);
   const [mounted, setMounted] = useState(false);
   const persistedRowsRef = useRef<ProjectDetailEntry[]>([]);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const customerFilterRef = useRef<HTMLDivElement | null>(null);
   const customerSearchRef = useRef<HTMLInputElement | null>(null);
   const engineerFilterRef = useRef<HTMLDivElement | null>(null);
@@ -1101,7 +1109,6 @@ export function ProjectsPanel() {
     selectedStatuses,
     selectedInvoiced,
     selectedPriorities,
-    pageSize,
     searchQuery,
     sort,
     groupBy,
@@ -1490,6 +1497,166 @@ export function ProjectsPanel() {
       setExportError(
         err instanceof Error ? err.message : "Failed to export projects.",
       );
+    }
+  }
+
+  function openImportPicker() {
+    setExportDropdownOpen(false);
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setExportError(null);
+    setError(null);
+    try {
+      const sheetRows = await parseSpreadsheetFile(file);
+      if (sheetRows.length < 2) {
+        throw new Error(
+          "File must include a header row and at least one data row.",
+        );
+      }
+
+      const headers = sheetRows[0]!.map((header) =>
+        header.trim().toLowerCase(),
+      );
+      const labelToKey = new Map<string, keyof ProjectDetailEntry>([
+        ["id", "displayId"],
+        ["customer", "customer"],
+        ["project name", "projectName"],
+        ["project initialize date", "projectInitializeDate"],
+        ["engineer", "engineer"],
+        ["pm name", "pmName"],
+        ["status", "status"],
+        ["a/c court", "acCourt"],
+        ["invoiced", "invoiced"],
+        ["recent activity", "recentActivity"],
+        ["recent activity date", "recentActivityDate"],
+        ["pm action items", "pmActionItems"],
+        ["pm action items date", "pmActionItemsDate"],
+        ["last email received (client)", "lastEmailReceivedClient"],
+        ["last email received date", "lastEmailReceivedDate"],
+        ["priority", "priority"],
+        ["eta(days)", "etaDays"],
+        ["revision history", "revisionHistory"],
+        ["partial invoicing date", "partialInvoicingDate"],
+        ["full invoiced date", "fullInvoicedDate"],
+        ["pm comments", "pmComments"],
+        ["final sccs sent", "finalSccsSent"],
+      ]);
+      for (const header of PROJECT_EXPORT_HEADERS) {
+        const key = labelToKey.get(header.toLowerCase());
+        if (key) {
+          labelToKey.set(header.toLowerCase(), key);
+        }
+      }
+
+      const columnIndexes: { key: keyof ProjectDetailEntry; index: number }[] =
+        [];
+      headers.forEach((header, index) => {
+        const key = labelToKey.get(header);
+        if (key) {
+          columnIndexes.push({ key, index });
+        }
+      });
+
+      if (columnIndexes.length === 0) {
+        throw new Error(
+          "No recognized columns. Export first and use those headers.",
+        );
+      }
+
+      const next = [...rows];
+      let created = 0;
+      let updated = 0;
+
+      for (const row of sheetRows.slice(1)) {
+        const values: Partial<ProjectDetailEntry> = {};
+        for (const { key, index } of columnIndexes) {
+          values[key] = (row[index] ?? "").trim() as never;
+        }
+
+        const displayId = String(values.displayId ?? "").trim();
+        const projectName = String(values.projectName ?? "").trim();
+        if (!displayId && !projectName) {
+          continue;
+        }
+
+        const existingIndex = next.findIndex((item) => {
+          if (
+            displayId &&
+            item.displayId.trim().toLowerCase() === displayId.toLowerCase()
+          ) {
+            return true;
+          }
+          return (
+            !displayId &&
+            item.projectName.trim().toLowerCase() ===
+              projectName.toLowerCase() &&
+            item.customer.trim().toLowerCase() ===
+              String(values.customer ?? "")
+                .trim()
+                .toLowerCase()
+          );
+        });
+
+        if (existingIndex >= 0) {
+          const existing = next[existingIndex]!;
+          next[existingIndex] = normalizeProjectDetail({
+            ...existing,
+            ...values,
+            id: existing.id,
+            namingProjectId: existing.namingProjectId,
+          });
+          updated += 1;
+        } else {
+          next.unshift(
+            normalizeProjectDetail({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              ...values,
+              displayId,
+              projectName,
+            }),
+          );
+          created += 1;
+        }
+      }
+
+      if (created === 0 && updated === 0) {
+        throw new Error("No valid rows found. ID or Project Name is required.");
+      }
+
+      const response = await fetch("/api/project-details", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectDetails: next }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        projectDetails?: ProjectDetailEntry[];
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to import projects.");
+      }
+      const saved = data.projectDetails ?? next;
+      persistedRowsRef.current = saved;
+      setRows(saved);
+      window.alert(
+        `Imported ${created + updated} project${
+          created + updated === 1 ? "" : "s"
+        } (${created} added, ${updated} updated).`,
+      );
+    } catch (importError) {
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Failed to import projects.",
+      );
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
     }
   }
 
@@ -2193,11 +2360,18 @@ export function ProjectsPanel() {
   function renderActiveProjectRow(row: ProjectDetailEntry) {
     const stickyStyle = stickyCustomerStyle(row);
     const isSelected = selectedIds.includes(row.id);
+    const isReadyInvoiced = isReadyToInvoice(row.invoiced);
+    const rowClass = [
+      isSelected ? "row-selected" : "",
+      isReadyInvoiced ? "row-ready-to-invoice" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
     return (
 
                     <tr
                       key={row.id}
-                      className={isSelected ? "row-selected" : undefined}
+                      className={rowClass || undefined}
                     >
                       <td
                         className="col-sticky col-sticky-check"
@@ -3111,6 +3285,26 @@ export function ProjectsPanel() {
               </button>
             </div>
           ) : null}
+          <button
+            type="button"
+            className="action-button"
+            disabled={!ready || importing}
+            onClick={openImportPicker}
+          >
+            {importing ? "Importing…" : "Import"}
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept={SPREADSHEET_IMPORT_ACCEPT}
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                void handleImportFile(file);
+              }
+            }}
+          />
         </div>
       </div>
 

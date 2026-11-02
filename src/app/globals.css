@@ -601,10 +601,13 @@ h2,
 }
 
 .naming-action-filters {
+  display: flex;
   flex: 1 1 auto;
   min-width: 0;
   justify-content: flex-start;
   align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
 }
 
 .naming-action-filters .filter-chip-button {
@@ -699,6 +702,17 @@ h2,
     rgba(209, 89, 74, 0.24),
     rgba(209, 89, 74, 0.12)
   );
+}
+
+.naming-action-right .action-button--pressed,
+.naming-action-right .action-button[aria-pressed="true"] {
+  background: linear-gradient(
+    180deg,
+    rgba(209, 89, 74, 0.32),
+    rgba(209, 89, 74, 0.18)
+  );
+  border-color: rgba(144, 33, 16, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(144, 33, 16, 0.18);
 }
 
 .naming-action-right .button.danger {
@@ -1801,8 +1815,13 @@ button.suggestion-link {
 }
 
 .table-wrap--fit-page {
-  overflow-x: auto;
+  /* scroll (not auto) keeps the horizontal scrollbar track reserved so the
+     last row isn’t clipped when the bar appears after wide content paints. */
+  overflow-x: scroll;
   overflow-y: hidden;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .projects-table {
@@ -1898,7 +1917,8 @@ button.suggestion-link {
 
 .projects-table--wide tbody td.col-sticky {
   z-index: 3;
-  background: var(--table-sticky);
+  /* Match body cells so sticky cols don't look like a pink "highlight". */
+  background: #ffffff;
   font-weight: 700;
   font-size: calc(0.8rem + 2px);
 }
@@ -2108,8 +2128,78 @@ button.suggestion-link {
   background: var(--accent-soft);
 }
 
-.projects-table tbody tr.row-selected td {
+.projects-table tbody tr.row-selected td,
+.projects-table--wide tbody tr.row-selected td,
+.projects-table--wide tbody tr.row-selected td.col-sticky {
   background: var(--accent-soft);
+}
+
+/* Solid full-row blue for READY TO INVOICE (cells + nested controls). */
+.projects-table tbody tr.row-ready-to-invoice,
+.projects-table--wide tbody tr.row-ready-to-invoice {
+  --ready-invoice-bg: #cfe4f8;
+  background: var(--ready-invoice-bg);
+}
+
+.projects-table tbody tr.row-ready-to-invoice > td,
+.projects-table--wide tbody tr.row-ready-to-invoice > td,
+.projects-table--wide tbody tr.row-ready-to-invoice > td.col-sticky {
+  background: var(--ready-invoice-bg) !important;
+}
+
+.projects-table tbody tr.row-ready-to-invoice .field-input,
+.projects-table tbody tr.row-ready-to-invoice .field-select,
+.projects-table tbody tr.row-ready-to-invoice .table-select,
+.projects-table tbody tr.row-ready-to-invoice .table-input,
+.projects-table tbody tr.row-ready-to-invoice .table-date-button,
+.projects-table tbody tr.row-ready-to-invoice .table-preview,
+.projects-table tbody tr.row-ready-to-invoice .status-menu-trigger {
+  background: rgba(255, 255, 255, 0.35) !important;
+}
+
+.projects-table tbody tr.row-ready-to-invoice.row-selected,
+.projects-table--wide tbody tr.row-ready-to-invoice.row-selected {
+  --ready-invoice-bg: #b7d6f3;
+}
+
+.projects-table tbody tr.row-ready-to-invoice.row-selected > td,
+.projects-table--wide tbody tr.row-ready-to-invoice.row-selected > td,
+.projects-table--wide tbody tr.row-ready-to-invoice.row-selected > td.col-sticky {
+  background: var(--ready-invoice-bg) !important;
+}
+
+.projects-table tbody tr.row-todo-flag {
+  background: rgba(245, 166, 35, 0.18);
+}
+
+.projects-table tbody tr.row-todo-flag td {
+  background: rgba(245, 166, 35, 0.18);
+}
+
+.projects-table tbody tr.row-todo-flag td.col-sticky {
+  background: rgba(245, 166, 35, 0.22);
+}
+
+.projects-table tbody tr.row-todo-flag.row-selected,
+.projects-table tbody tr.row-todo-flag.row-selected td {
+  background: rgba(245, 166, 35, 0.28);
+}
+
+.projects-table tbody tr.row-todo-flag-red {
+  background: rgba(220, 80, 70, 0.16);
+}
+
+.projects-table tbody tr.row-todo-flag-red td {
+  background: rgba(220, 80, 70, 0.16);
+}
+
+.projects-table tbody tr.row-todo-flag-red td.col-sticky {
+  background: rgba(220, 80, 70, 0.2);
+}
+
+.projects-table tbody tr.row-todo-flag-red.row-selected,
+.projects-table tbody tr.row-todo-flag-red.row-selected td {
+  background: rgba(220, 80, 70, 0.26);
 }
 
 .projects-table tbody tr.group-row td {

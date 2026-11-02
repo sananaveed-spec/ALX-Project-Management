@@ -16,12 +16,12 @@ export type DashboardTab =
   | "engineerLoad";
 
 const NAV_ITEMS: { id: DashboardTab; label: string }[] = [
+  { id: "todayToDo", label: "Today To-Do List" },
   { id: "naming", label: "Project Naming" },
   { id: "customers", label: "Customer Name" },
   { id: "details", label: "Active Projects" },
   { id: "statusMenu", label: "Lookup Data" },
   { id: "readyToInvoice", label: "Ready to Invoice" },
-  { id: "todayToDo", label: "Today To-Do List" },
   { id: "projectHistory", label: "Project History" },
   { id: "completedProjects", label: "Completed Projects" },
   { id: "invoicingHistory", label: "Invoicing History" },

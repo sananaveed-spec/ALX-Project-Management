@@ -93,6 +93,59 @@ export function isDueOnTodayToDoList(
   return reminderDate <= today;
 }
 
+/** Reminder date is exactly today (LA). */
+export function isTodayReminder(
+  row: ProjectDetailEntry,
+  today = todayIsoInLosAngeles(),
+): boolean {
+  const reminderDate = row.pmActionItemsDate.trim().slice(0, 10);
+  return Boolean(reminderDate) && reminderDate === today;
+}
+
+/** Reminder date is before today (still on the to-do list). */
+export function isPendingReminder(
+  row: ProjectDetailEntry,
+  today = todayIsoInLosAngeles(),
+): boolean {
+  const reminderDate = row.pmActionItemsDate.trim().slice(0, 10);
+  return Boolean(reminderDate) && reminderDate < today;
+}
+
+/** Calendar days overdue (today − reminder). Null if no date. */
+export function reminderDaysOverdue(
+  row: ProjectDetailEntry,
+  today = todayIsoInLosAngeles(),
+): number | null {
+  const reminderDate = row.pmActionItemsDate.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(reminderDate)) {
+    return null;
+  }
+  const todayMs = new Date(`${today}T00:00:00`).getTime();
+  const reminderMs = new Date(`${reminderDate}T00:00:00`).getTime();
+  if (Number.isNaN(todayMs) || Number.isNaN(reminderMs)) {
+    return null;
+  }
+  return Math.round((todayMs - reminderMs) / 86_400_000);
+}
+
+/** Pending 1–7 days overdue (inclusive) — flag with light orange. */
+export function isPendingWithinSevenDays(
+  row: ProjectDetailEntry,
+  today = todayIsoInLosAngeles(),
+): boolean {
+  const days = reminderDaysOverdue(row, today);
+  return days !== null && days >= 1 && days <= 7;
+}
+
+/** Pending more than 7 days overdue — flag with light red. */
+export function isPendingOverSevenDays(
+  row: ProjectDetailEntry,
+  today = todayIsoInLosAngeles(),
+): boolean {
+  const days = reminderDaysOverdue(row, today);
+  return days !== null && days > 7;
+}
+
 export function filterTodayToDoRows(
   rows: ProjectDetailEntry[],
   today = todayIsoInLosAngeles(),
