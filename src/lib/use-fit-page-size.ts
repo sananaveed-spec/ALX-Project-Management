@@ -38,7 +38,7 @@ export function useFitPageSize(
     let observer: ResizeObserver | null = null;
     let raf = 0;
     let tries = 0;
-    let debounce: ReturnType<typeof window.setTimeout> | null = null;
+    let debounce: number | null = null;
     lockedRef.current = null;
 
     function usableBody(el: HTMLElement) {
