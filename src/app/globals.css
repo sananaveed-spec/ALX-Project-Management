@@ -2168,38 +2168,40 @@ button.suggestion-link {
   background: var(--ready-invoice-bg) !important;
 }
 
+/* Pending 1–7 days — light orange (not yellow) */
 .projects-table tbody tr.row-todo-flag {
-  background: rgba(245, 166, 35, 0.18);
+  background: #f7d0b8;
 }
 
 .projects-table tbody tr.row-todo-flag td {
-  background: rgba(245, 166, 35, 0.18);
+  background: #f7d0b8;
 }
 
 .projects-table tbody tr.row-todo-flag td.col-sticky {
-  background: rgba(245, 166, 35, 0.22);
+  background: #f3c7ab;
 }
 
 .projects-table tbody tr.row-todo-flag.row-selected,
 .projects-table tbody tr.row-todo-flag.row-selected td {
-  background: rgba(245, 166, 35, 0.28);
+  background: #efbe9e;
 }
 
+/* Pending >7 days — customer-table pink, slightly darker red tune */
 .projects-table tbody tr.row-todo-flag-red {
-  background: rgba(220, 80, 70, 0.16);
+  background: #f0d4ce;
 }
 
 .projects-table tbody tr.row-todo-flag-red td {
-  background: rgba(220, 80, 70, 0.16);
+  background: #f0d4ce;
 }
 
 .projects-table tbody tr.row-todo-flag-red td.col-sticky {
-  background: rgba(220, 80, 70, 0.2);
+  background: #ebd0c9;
 }
 
 .projects-table tbody tr.row-todo-flag-red.row-selected,
 .projects-table tbody tr.row-todo-flag-red.row-selected td {
-  background: rgba(220, 80, 70, 0.26);
+  background: #e5c4bc;
 }
 
 .projects-table tbody tr.group-row td {
