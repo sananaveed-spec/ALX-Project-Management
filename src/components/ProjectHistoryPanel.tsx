@@ -3,12 +3,22 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
+  exportTableAsCsv,
+  exportTableAsExcel,
+  exportTableAsPdf,
+  parseSpreadsheetFile,
+  SPREADSHEET_IMPORT_ACCEPT,
+} from "@/lib/list-export";
+import {
   LIST_SORT_OPTIONS,
   sortByListSort,
   type ListSort,
 } from "@/lib/list-sort";
 import { type ProjectDetailEntry } from "@/lib/project-details";
-import { type ProjectHistoryEntry } from "@/lib/project-history";
+import {
+  normalizeProjectHistory,
+  type ProjectHistoryEntry,
+} from "@/lib/project-history";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
@@ -26,6 +36,24 @@ const TABLE_HEADERS = [
   "Comments",
   "Last Email Received (Client)",
   "Date",
+] as const;
+
+/** Distinct headers for export/import (table has repeated "Date" labels). */
+const EXPORT_HEADERS = [
+  "ID",
+  "Customer",
+  "Project Name",
+  "Date",
+  "Engineer",
+  "Status",
+  "Invoiced",
+  "Recent Activity",
+  "Recent Activity Date",
+  "Action Taken",
+  "Action Taken Date",
+  "Comments",
+  "Last Email Received (Client)",
+  "Last Email Received Date",
 ] as const;
 
 function cell(value: string) {
@@ -89,8 +117,14 @@ export function ProjectHistoryPanel() {
   const [saving, setSaving] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const titleId = useId();
+  const exportMenuId = useId();
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
   const pageSize = useFitPageSize(
     tableWrapRef,
     { rowHeight: 44, minRows: 6, maxRows: 50 },
@@ -159,6 +193,20 @@ export function ProjectHistoryPanel() {
     return () => window.clearTimeout(timer);
   }, [logWizard]);
 
+  useEffect(() => {
+    if (!exportDropdownOpen) {
+      return;
+    }
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+        setExportDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [exportDropdownOpen]);
+
   const filtered = useMemo(() => {
     const matched = rows.filter((row) => matchesQuery(row, query));
     return sortByListSort(matched, sort, (row) => row.displayId);
@@ -199,6 +247,22 @@ export function ProjectHistoryPanel() {
     pageRows.length > 0 &&
     pageRows.every((row) => selectedIds.includes(row.id));
 
+  async function persistHistory(next: ProjectHistoryEntry[]) {
+    const response = await fetch("/api/project-history", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ history: next }),
+    });
+    const data = (await response.json()) as {
+      error?: string;
+      history?: ProjectHistoryEntry[];
+    };
+    if (!response.ok) {
+      throw new Error(data.error || "Failed to save project history.");
+    }
+    return data.history ?? next;
+  }
+
   async function handleDeleteSelected() {
     if (selectedIds.length === 0) {
       return;
@@ -220,19 +284,7 @@ export function ProjectHistoryPanel() {
 
     setError(null);
     try {
-      const response = await fetch("/api/project-history", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ history: next }),
-      });
-      const data = (await response.json()) as {
-        error?: string;
-        history?: ProjectHistoryEntry[];
-      };
-      if (!response.ok) {
-        throw new Error(data.error || "Failed to delete history rows.");
-      }
-      setRows(data.history ?? next);
+      setRows(await persistHistory(next));
       setSelectedIds([]);
     } catch (deleteError) {
       setError(
@@ -240,6 +292,176 @@ export function ProjectHistoryPanel() {
           ? deleteError.message
           : "Failed to delete projects.",
       );
+    }
+  }
+
+  function rowToExportCells(row: ProjectHistoryEntry): string[] {
+    return [
+      row.displayId.trim(),
+      row.customer.trim(),
+      row.projectName.trim(),
+      row.date.trim(),
+      row.engineer.trim(),
+      row.status.trim(),
+      row.invoiced.trim(),
+      row.recentActivity.trim(),
+      row.recentActivityDate.trim(),
+      row.actionTaken.trim(),
+      row.actionTakenDate.trim(),
+      row.comments.trim(),
+      row.lastEmailReceivedClient.trim(),
+      row.lastEmailReceivedDate.trim(),
+    ];
+  }
+
+  function handleExport(format: "excel" | "pdf" | "csv") {
+    setExportError(null);
+    try {
+      const exportRows = filtered.map(rowToExportCells);
+      if (format === "excel") {
+        exportTableAsExcel(
+          [...EXPORT_HEADERS],
+          exportRows,
+          "project-history",
+          "Project History",
+        );
+      } else if (format === "pdf") {
+        exportTableAsPdf("Project History", [...EXPORT_HEADERS], exportRows);
+      } else {
+        exportTableAsCsv([...EXPORT_HEADERS], exportRows, "project-history");
+      }
+      setExportDropdownOpen(false);
+    } catch (err) {
+      setExportError(
+        err instanceof Error
+          ? err.message
+          : "Failed to export project history.",
+      );
+    }
+  }
+
+  function openImportPicker() {
+    setExportDropdownOpen(false);
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setExportError(null);
+    setError(null);
+    try {
+      const parsed = await parseSpreadsheetFile(file);
+      if (parsed.length < 2) {
+        throw new Error(
+          "File must include a header row and at least one data row.",
+        );
+      }
+
+      const headers = parsed[0]!.map((header) => header.trim().toLowerCase());
+      const indexOf = (...labels: string[]) =>
+        headers.findIndex((header) => labels.includes(header));
+
+      const idIdx = indexOf("id");
+      const customerIdx = indexOf("customer");
+      const nameIdx = indexOf("project name");
+      const dateIdx = indexOf("date");
+      const engineerIdx = indexOf("engineer", "zproject engineer");
+      const statusIdx = indexOf("status", "zstatus");
+      const invoicedIdx = indexOf("invoiced");
+      const recentIdx = indexOf("recent activity");
+      const recentDateIdx = indexOf("recent activity date", "date");
+      // Prefer explicit labels; fall back carefully for Excel duplicate Date cols
+      const actionIdx = indexOf("action taken");
+      const actionDateIdx = indexOf("action taken date", "date_1");
+      const commentsIdx = indexOf("comments");
+      const emailIdx = indexOf(
+        "last email received (client)",
+        "last email received",
+      );
+      const emailDateIdx = indexOf("last email received date", "date_2");
+
+      // Resolve ambiguous "date" columns by header position when using Excel layout
+      const dateColumns = headers
+        .map((header, index) => ({ header, index }))
+        .filter(({ header }) => header === "date" || header.startsWith("date"));
+
+      const initDateIdx =
+        dateIdx >= 0
+          ? dateIdx
+          : dateColumns[0]?.index ?? -1;
+      const resolvedRecentDateIdx =
+        headers.indexOf("recent activity date") >= 0
+          ? headers.indexOf("recent activity date")
+          : dateColumns[1]?.index ?? recentDateIdx;
+      const resolvedActionDateIdx =
+        actionDateIdx >= 0
+          ? actionDateIdx
+          : dateColumns[2]?.index ?? -1;
+      const resolvedEmailDateIdx =
+        emailDateIdx >= 0
+          ? emailDateIdx
+          : dateColumns[3]?.index ?? -1;
+
+      if (idIdx < 0 && nameIdx < 0 && actionIdx < 0 && commentsIdx < 0) {
+        throw new Error(
+          "No recognized columns. Export first and use those headers.",
+        );
+      }
+
+      const next = [...rows];
+      let created = 0;
+
+      for (const row of parsed.slice(1)) {
+        const displayId = (row[idIdx] ?? "").trim();
+        const projectName = (row[nameIdx] ?? "").trim();
+        const actionTaken = (row[actionIdx] ?? "").trim();
+        const comments = (row[commentsIdx] ?? "").trim();
+        if (!displayId && !projectName && !actionTaken && !comments) {
+          continue;
+        }
+
+        next.push(
+          normalizeProjectHistory({
+            id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            displayId,
+            customer: (row[customerIdx] ?? "").trim(),
+            projectName,
+            date: (row[initDateIdx] ?? "").trim(),
+            engineer: (row[engineerIdx] ?? "").trim(),
+            status: (row[statusIdx] ?? "").trim(),
+            invoiced: (row[invoicedIdx] ?? "").trim(),
+            recentActivity: (row[recentIdx] ?? "").trim(),
+            recentActivityDate: (row[resolvedRecentDateIdx] ?? "").trim(),
+            actionTaken,
+            actionTakenDate: (row[resolvedActionDateIdx] ?? "").trim(),
+            comments,
+            lastEmailReceivedClient: (row[emailIdx] ?? "").trim(),
+            lastEmailReceivedDate: (row[resolvedEmailDateIdx] ?? "").trim(),
+            createdAt: new Date().toISOString(),
+          }),
+        );
+        created += 1;
+      }
+
+      if (created === 0) {
+        throw new Error("No valid history rows found in the file.");
+      }
+
+      setRows(await persistHistory(next));
+      window.alert(
+        `Imported ${created} history row${created === 1 ? "" : "s"}.`,
+      );
+    } catch (importError) {
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Failed to import project history.",
+      );
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
     }
   }
 
@@ -302,60 +524,133 @@ export function ProjectHistoryPanel() {
 
   return (
     <section className="content-panel content-panel--actions">
-      <div className="action-row">
-        <label className="field history-search-field">
-          <span className="visually-hidden">Search</span>
-          <input
-            className="field-input"
-            type="search"
-            placeholder="ID, customer, project name, comments…"
-            aria-label="Search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-          />
-        </label>
-        <label className="field customer-sort-field">
-          <span className="visually-hidden">Sort</span>
-          <select
-            className="field-input"
-            value={sort}
-            aria-label="Sort"
-            onChange={(event) => setSort(event.target.value as ListSort)}
+      <div className="action-row naming-action-row">
+        <div className="naming-filters-bar">
+          <label className="field history-search-field">
+            <span className="visually-hidden">Search</span>
+            <input
+              className="field-input"
+              type="search"
+              placeholder="ID, customer, project name, comments…"
+              aria-label="Search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+            />
+          </label>
+          <label className="field customer-sort-field">
+            <span className="visually-hidden">Sort</span>
+            <select
+              className="field-input"
+              value={sort}
+              aria-label="Sort"
+              onChange={(event) => setSort(event.target.value as ListSort)}
+            >
+              {LIST_SORT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="naming-action-right" ref={exportMenuRef}>
+          <button
+            type="button"
+            className="button primary"
+            disabled={!ready || projects.length === 0}
+            onClick={() =>
+              setLogWizard({
+                projectId: sortedProjects[0]?.id ?? "",
+                comments: "",
+              })
+            }
           >
-            {LIST_SORT_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <button
-          type="button"
-          className="button primary"
-          disabled={!ready || projects.length === 0}
-          onClick={() =>
-            setLogWizard({
-              projectId: sortedProjects[0]?.id ?? "",
-              comments: "",
-            })
-          }
-        >
-          Log Action
-        </button>
-        <button
-          type="button"
-          className="button danger"
-          disabled={!ready || selectedIds.length === 0}
-          onClick={() => void handleDeleteSelected()}
-        >
-          Delete
-          {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-        </button>
+            Log Action
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            disabled={!ready || selectedIds.length === 0}
+            onClick={() => void handleDeleteSelected()}
+          >
+            Delete
+            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+          </button>
+          <button
+            type="button"
+            className="action-button"
+            disabled={!ready || filtered.length === 0}
+            aria-expanded={exportDropdownOpen}
+            aria-controls={exportMenuId}
+            onClick={() => setExportDropdownOpen((open) => !open)}
+          >
+            Export
+          </button>
+          {exportDropdownOpen ? (
+            <div
+              id={exportMenuId}
+              className="filter-dropdown filter-dropdown--export"
+              role="menu"
+              aria-label="Export project history"
+            >
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("excel")}
+              >
+                Export as Excel
+              </button>
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("pdf")}
+              >
+                Export as PDF
+              </button>
+              <button
+                type="button"
+                className="export-menu-item"
+                role="menuitem"
+                onClick={() => handleExport("csv")}
+              >
+                Export as CSV
+              </button>
+            </div>
+          ) : null}
+          <button
+            type="button"
+            className="action-button"
+            disabled={!ready || importing}
+            onClick={openImportPicker}
+          >
+            {importing ? "Importing…" : "Import"}
+          </button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept={SPREADSHEET_IMPORT_ACCEPT}
+            hidden
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) {
+                void handleImportFile(file);
+              }
+            }}
+          />
+        </div>
       </div>
 
       {error ? (
         <p className="form-message error" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {exportError ? (
+        <p className="form-message error" role="alert">
+          {exportError}
         </p>
       ) : null}
 
@@ -398,7 +693,7 @@ export function ProjectHistoryPanel() {
                     >
                       {query.trim()
                         ? "No history rows match this search."
-                        : "No history yet. Complete a Today To-Do item or use Log Action."}
+                        : "No history yet. Complete a Today To-Do item, use Log Action, or Import."}
                     </td>
                   </tr>
                 ) : (
