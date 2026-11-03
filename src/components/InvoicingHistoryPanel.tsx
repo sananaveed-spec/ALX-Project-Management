@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
-  filterInvoicingHistoryRows,
-  partialInvoicesDisplay,
-  type ProjectDetailEntry,
-} from "@/lib/project-details";
+  exportTableAsCsv,
+  exportTableAsExcel,
+  exportTableAsPdf,
+  parseSpreadsheetFile,
+  SPREADSHEET_IMPORT_ACCEPT,
+} from "@/lib/list-export";
 import {
   LIST_SORT_OPTIONS,
   sortByListSort,
   type ListSort,
 } from "@/lib/list-sort";
+import {
+  filterInvoicingHistoryRows,
+  isPartialOrFullInvoiced,
+  normalizeProjectDetail,
+  partialInvoicesDisplay,
+  type ProjectDetailEntry,
+} from "@/lib/project-details";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
 
 const TABLE_HEADERS = [
@@ -18,6 +27,16 @@ const TABLE_HEADERS = [
   "Customer",
   "Project Name",
   "Status",
+  "Partial Invoices",
+  "Full Invoice",
+] as const;
+
+const EXPORT_HEADERS = [
+  "ID",
+  "Customer",
+  "Project Name",
+  "Status",
+  "Invoiced",
   "Partial Invoices",
   "Full Invoice",
 ] as const;
@@ -36,6 +55,7 @@ function matchesInvoicingQuery(row: ProjectDetailEntry, query: string) {
     row.customer,
     row.projectName,
     row.status,
+    row.invoiced,
     partialInvoicesDisplay(row),
     row.fullInvoicedDate,
   ]
@@ -55,6 +75,24 @@ function clearInvoicingFields(row: ProjectDetailEntry): ProjectDetailEntry {
   };
 }
 
+function inferInvoicedStatus(input: {
+  invoiced: string;
+  partialInvoices: string;
+  fullInvoice: string;
+}): string {
+  const explicit = input.invoiced.trim().toUpperCase().replace(/\s+/g, " ");
+  if (explicit === "FULL" || explicit === "PARTIAL") {
+    return explicit;
+  }
+  if (input.fullInvoice.trim()) {
+    return "FULL";
+  }
+  if (input.partialInvoices.trim()) {
+    return "PARTIAL";
+  }
+  return "";
+}
+
 export function InvoicingHistoryPanel() {
   const [rows, setRows] = useState<ProjectDetailEntry[]>([]);
   const [ready, setReady] = useState(false);
@@ -63,7 +101,13 @@ export function InvoicingHistoryPanel() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<ListSort>("name");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
   const tableWrapRef = useRef<HTMLDivElement | null>(null);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const exportMenuId = useId();
   const pageSize = useFitPageSize(
     tableWrapRef,
     { rowHeight: 42, minRows: 6, maxRows: 50 },
@@ -109,6 +153,20 @@ export function InvoicingHistoryPanel() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!exportDropdownOpen) {
+      return;
+    }
+    function handlePointerDown(event: MouseEvent) {
+      const target = event.target as Node;
+      if (exportMenuRef.current && !exportMenuRef.current.contains(target)) {
+        setExportDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => document.removeEventListener("mousedown", handlePointerDown);
+  }, [exportDropdownOpen]);
+
   const visibleRows = useMemo(() => {
     const filtered = rows.filter((row) => matchesInvoicingQuery(row, query));
     return sortByListSort(filtered, sort, (row) => row.displayId);
@@ -149,6 +207,37 @@ export function InvoicingHistoryPanel() {
     pageRows.length > 0 &&
     pageRows.every((row) => selectedIds.includes(row.id));
 
+  async function loadAllDetails(): Promise<ProjectDetailEntry[]> {
+    const response = await fetch("/api/project-details", {
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      throw new Error("Could not load projects to update.");
+    }
+    const data = (await response.json()) as {
+      projectDetails?: ProjectDetailEntry[];
+    };
+    return data.projectDetails ?? [];
+  }
+
+  async function saveAllDetails(
+    nextDetails: ProjectDetailEntry[],
+  ): Promise<ProjectDetailEntry[]> {
+    const saveResponse = await fetch("/api/project-details", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ projectDetails: nextDetails }),
+    });
+    const saveData = (await saveResponse.json()) as {
+      error?: string;
+      projectDetails?: ProjectDetailEntry[];
+    };
+    if (!saveResponse.ok) {
+      throw new Error(saveData.error || "Failed to save invoicing changes.");
+    }
+    return saveData.projectDetails ?? nextDetails;
+  }
+
   async function handleDeleteSelected() {
     if (selectedIds.length === 0) {
       return;
@@ -168,36 +257,12 @@ export function InvoicingHistoryPanel() {
     const selectedSet = new Set(selectedIds);
     setError(null);
     try {
-      const response = await fetch("/api/project-details", {
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw new Error("Could not load projects to update.");
-      }
-      const data = (await response.json()) as {
-        projectDetails?: ProjectDetailEntry[];
-      };
-      const allRows = data.projectDetails ?? [];
+      const allRows = await loadAllDetails();
       const nextDetails = allRows.map((row) =>
         selectedSet.has(row.id) ? clearInvoicingFields(row) : row,
       );
-
-      const saveResponse = await fetch("/api/project-details", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectDetails: nextDetails }),
-      });
-      const saveData = (await saveResponse.json()) as {
-        error?: string;
-        projectDetails?: ProjectDetailEntry[];
-      };
-      if (!saveResponse.ok) {
-        throw new Error(saveData.error || "Failed to remove from history.");
-      }
-
-      setRows(
-        filterInvoicingHistoryRows(saveData.projectDetails ?? nextDetails),
-      );
+      const saved = await saveAllDetails(nextDetails);
+      setRows(filterInvoicingHistoryRows(saved));
       setSelectedIds([]);
     } catch (deleteError) {
       setError(
@@ -208,51 +273,294 @@ export function InvoicingHistoryPanel() {
     }
   }
 
+  function handleExport(format: "excel" | "pdf" | "csv") {
+    setExportError(null);
+    try {
+      const exportRows = visibleRows.map((row) => [
+        row.displayId.trim(),
+        row.customer.trim(),
+        row.projectName.trim(),
+        row.status.trim(),
+        row.invoiced.trim(),
+        partialInvoicesDisplay(row).trim(),
+        row.fullInvoicedDate.trim(),
+      ]);
+      if (format === "excel") {
+        exportTableAsExcel(
+          [...EXPORT_HEADERS],
+          exportRows,
+          "invoicing-history",
+          "Invoicing History",
+        );
+      } else if (format === "pdf") {
+        exportTableAsPdf(
+          "Invoicing History",
+          [...EXPORT_HEADERS],
+          exportRows,
+        );
+      } else {
+        exportTableAsCsv(
+          [...EXPORT_HEADERS],
+          exportRows,
+          "invoicing-history",
+        );
+      }
+      setExportDropdownOpen(false);
+    } catch (err) {
+      setExportError(
+        err instanceof Error
+          ? err.message
+          : "Failed to export invoicing history.",
+      );
+    }
+  }
+
+  function openImportPicker() {
+    setExportDropdownOpen(false);
+    importInputRef.current?.click();
+  }
+
+  async function handleImportFile(file: File) {
+    setImporting(true);
+    setExportError(null);
+    setError(null);
+    try {
+      const parsed = await parseSpreadsheetFile(file);
+      if (parsed.length < 2) {
+        throw new Error(
+          "File must include a header row and at least one data row.",
+        );
+      }
+
+      const headers = parsed[0]!.map((header) => header.trim().toLowerCase());
+      const indexOf = (...labels: string[]) =>
+        headers.findIndex((header) => labels.includes(header));
+
+      const idIdx = indexOf("id");
+      const statusIdx = indexOf("status");
+      const invoicedIdx = indexOf("invoiced");
+      const partialIdx = indexOf(
+        "partial invoices",
+        "partial invoice history",
+        "partial invoicing date",
+      );
+      const fullIdx = indexOf(
+        "full invoice",
+        "full invoice (100%)",
+        "full invoiced date",
+      );
+
+      if (idIdx < 0) {
+        throw new Error(
+          "No ID column found. Export first and use those headers.",
+        );
+      }
+
+      const allRows = await loadAllDetails();
+      const byDisplayId = new Map(
+        allRows.map((row) => [row.displayId.trim().toLowerCase(), row]),
+      );
+
+      let updated = 0;
+      let skipped = 0;
+
+      for (const row of parsed.slice(1)) {
+        const displayId = (row[idIdx] ?? "").trim();
+        if (!displayId) {
+          continue;
+        }
+
+        const existing = byDisplayId.get(displayId.toLowerCase());
+        if (!existing) {
+          skipped += 1;
+          continue;
+        }
+
+        const partialInvoices = (row[partialIdx] ?? "").trim();
+        const fullInvoice = (row[fullIdx] ?? "").trim();
+        const status = (row[statusIdx] ?? "").trim();
+        const invoiced = inferInvoicedStatus({
+          invoiced: (row[invoicedIdx] ?? "").trim(),
+          partialInvoices,
+          fullInvoice,
+        });
+
+        if (!isPartialOrFullInvoiced(invoiced) && !partialInvoices && !fullInvoice) {
+          skipped += 1;
+          continue;
+        }
+
+        const nextInvoiced = isPartialOrFullInvoiced(invoiced)
+          ? invoiced.trim().toUpperCase().replace(/\s+/g, " ")
+          : fullInvoice
+            ? "FULL"
+            : "PARTIAL";
+
+        const updatedRow = normalizeProjectDetail({
+          ...existing,
+          status: status || existing.status,
+          invoiced: nextInvoiced,
+          partialInvoiceHistory: partialInvoices || existing.partialInvoiceHistory,
+          partialInvoicingDate: partialInvoices
+            ? ""
+            : existing.partialInvoicingDate,
+          fullInvoicedDate: fullInvoice || existing.fullInvoicedDate,
+        });
+
+        byDisplayId.set(displayId.toLowerCase(), updatedRow);
+        updated += 1;
+      }
+
+      if (updated === 0) {
+        throw new Error(
+          skipped > 0
+            ? "No matching Active Projects found for imported IDs."
+            : "No valid invoicing rows found in the file.",
+        );
+      }
+
+      const nextDetails = allRows.map(
+        (row) =>
+          byDisplayId.get(row.displayId.trim().toLowerCase()) ?? row,
+      );
+      const saved = await saveAllDetails(nextDetails);
+      setRows(filterInvoicingHistoryRows(saved));
+      window.alert(
+        `Updated ${updated} project${updated === 1 ? "" : "s"} on Invoicing History` +
+          (skipped ? ` (${skipped} skipped).` : "."),
+      );
+    } catch (importError) {
+      setError(
+        importError instanceof Error
+          ? importError.message
+          : "Failed to import invoicing history.",
+      );
+    } finally {
+      setImporting(false);
+      if (importInputRef.current) {
+        importInputRef.current.value = "";
+      }
+    }
+  }
+
   return (
     <section className="content-panel content-panel--actions">
       {ready ? (
-        <div className="action-row">
-          <label className="field history-search-field">
-            <span className="visually-hidden">Search</span>
-            <input
-              className="field-input"
-              type="search"
-              placeholder="ID, customer, project name, status…"
-              aria-label="Search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          <label className="field customer-sort-field">
-            <span className="visually-hidden">Sort</span>
-            <select
-              className="field-input"
-              value={sort}
-              aria-label="Sort"
-              onChange={(event) => setSort(event.target.value as ListSort)}
+        <div className="action-row naming-action-row">
+          <div className="naming-filters-bar">
+            <label className="field history-search-field">
+              <span className="visually-hidden">Search</span>
+              <input
+                className="field-input"
+                type="search"
+                placeholder="ID, customer, project name, status…"
+                aria-label="Search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </label>
+            <label className="field customer-sort-field">
+              <span className="visually-hidden">Sort</span>
+              <select
+                className="field-input"
+                value={sort}
+                aria-label="Sort"
+                onChange={(event) => setSort(event.target.value as ListSort)}
+              >
+                {LIST_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="naming-action-right" ref={exportMenuRef}>
+            <button
+              type="button"
+              className="button danger"
+              disabled={selectedIds.length === 0}
+              onClick={() => void handleDeleteSelected()}
             >
-              {LIST_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <button
-            type="button"
-            className="button danger"
-            disabled={selectedIds.length === 0}
-            onClick={() => void handleDeleteSelected()}
-          >
-            Delete
-            {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
-          </button>
+              Delete
+              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+            </button>
+            <button
+              type="button"
+              className="action-button"
+              disabled={visibleRows.length === 0}
+              aria-expanded={exportDropdownOpen}
+              aria-controls={exportMenuId}
+              onClick={() => setExportDropdownOpen((open) => !open)}
+            >
+              Export
+            </button>
+            {exportDropdownOpen ? (
+              <div
+                id={exportMenuId}
+                className="filter-dropdown filter-dropdown--export"
+                role="menu"
+                aria-label="Export invoicing history"
+              >
+                <button
+                  type="button"
+                  className="export-menu-item"
+                  role="menuitem"
+                  onClick={() => handleExport("excel")}
+                >
+                  Export as Excel
+                </button>
+                <button
+                  type="button"
+                  className="export-menu-item"
+                  role="menuitem"
+                  onClick={() => handleExport("pdf")}
+                >
+                  Export as PDF
+                </button>
+                <button
+                  type="button"
+                  className="export-menu-item"
+                  role="menuitem"
+                  onClick={() => handleExport("csv")}
+                >
+                  Export as CSV
+                </button>
+              </div>
+            ) : null}
+            <button
+              type="button"
+              className="action-button"
+              disabled={importing}
+              onClick={openImportPicker}
+            >
+              {importing ? "Importing…" : "Import"}
+            </button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept={SPREADSHEET_IMPORT_ACCEPT}
+              hidden
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  void handleImportFile(file);
+                }
+              }}
+            />
+          </div>
         </div>
       ) : null}
 
       {error ? (
         <p className="form-message error" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {exportError ? (
+        <p className="form-message error" role="alert">
+          {exportError}
         </p>
       ) : null}
 
@@ -295,7 +603,7 @@ export function InvoicingHistoryPanel() {
                     >
                       {query.trim()
                         ? "No invoicing rows match this search."
-                        : "No PARTIAL or FULL invoiced projects yet."}
+                        : "No PARTIAL or FULL invoiced projects yet. Use Import or mark invoices on Active Projects."}
                     </td>
                   </tr>
                 ) : (
