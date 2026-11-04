@@ -33,6 +33,8 @@ export type TodoEmailLastRun = {
 };
 
 export type TodoEmailScheduleStore = {
+  /** From mailbox UPN (editable in Email Scheduling). */
+  from: string;
   /** Comma/semicolon-separated To recipients (shared for all digests). */
   to: string;
   /** Last selected schedule row (slotKey) for preview. */
@@ -55,6 +57,7 @@ export type TodoEmailPlan = {
 
 export function createEmptyTodoEmailScheduleStore(): TodoEmailScheduleStore {
   return {
+    from: TODO_EMAIL_FROM,
     to: TODO_EMAIL_TO,
     selectedSlotKey: "",
     entries: [],
@@ -80,6 +83,15 @@ export function normalizeTodoEmailList(value: string): string {
   return emails.join(", ");
 }
 
+/** Single From address (first valid email in the string). */
+export function normalizeTodoEmailFrom(value: string): string {
+  const list = normalizeTodoEmailList(value);
+  if (!list) {
+    return "";
+  }
+  return list.split(",")[0]?.trim() || "";
+}
+
 export function normalizeTodoEmailScheduleStore(
   raw: unknown,
 ): TodoEmailScheduleStore {
@@ -87,6 +99,7 @@ export function normalizeTodoEmailScheduleStore(
     return createEmptyTodoEmailScheduleStore();
   }
   const record = raw as {
+    from?: unknown;
     to?: unknown;
     selectedSlotKey?: unknown;
     entries?: unknown;
@@ -94,6 +107,8 @@ export function normalizeTodoEmailScheduleStore(
   };
   const entries = Array.isArray(record.entries) ? record.entries : [];
   const to = normalizeTodoEmailList(String(record.to ?? "")) || TODO_EMAIL_TO;
+  const from =
+    normalizeTodoEmailFrom(String(record.from ?? "")) || TODO_EMAIL_FROM;
   const lastRunRaw =
     record.lastRun && typeof record.lastRun === "object"
       ? (record.lastRun as Record<string, unknown>)
@@ -110,6 +125,7 @@ export function normalizeTodoEmailScheduleStore(
         }
       : null;
   return {
+    from,
     to,
     selectedSlotKey: String(record.selectedSlotKey ?? "").trim(),
     lastRun,
@@ -144,10 +160,15 @@ export function isTodoEmailSender(email: string): boolean {
 export function withTodoEmailRecipients(
   store: TodoEmailScheduleStore,
   to: string,
+  from?: string,
 ): TodoEmailScheduleStore {
   return {
     ...store,
     to: normalizeTodoEmailList(to) || TODO_EMAIL_TO,
+    from:
+      from !== undefined
+        ? normalizeTodoEmailFrom(from) || TODO_EMAIL_FROM
+        : store.from || TODO_EMAIL_FROM,
   };
 }
 
@@ -382,7 +403,7 @@ export function buildTodoEmailHtml(
 
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="5" style="padding:8px;border:1px solid #ccc;color:#666;">No items for this digest.</td></tr>`
+      ? `<tr><td colspan="5" style="padding:8px;border:1px solid #ccc;color:#666;">No items for this period.</td></tr>`
       : rows
           .map((row) => {
             const cells = [
@@ -404,7 +425,6 @@ export function buildTodoEmailHtml(
   // Fragment only (no html/body wrapper) so contentEditable edit/save round-trips cleanly.
   return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#111;">
   <h2 style="font-size:16px;margin:0 0 12px;">${escapeHtml(title)}</h2>
-  <p style="margin:0 0 12px;color:#444;">From ${escapeHtml(TODO_EMAIL_FROM)} · scheduled for 3:00 PM Pakistan Time</p>
   <table style="border-collapse:collapse;width:100%;font-size:12px;">
     <thead>
       <tr>

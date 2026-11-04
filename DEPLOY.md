@@ -137,19 +137,18 @@ Azure → App registration → **Authentication**
 
 ### To-Do Email (live 3:00 PM PKT cron + Graph app-only)
 
-Daily digests build from the **current** Today / Pending list at send time, then send via Microsoft Graph **application** `Mail.Send` as `TODO_EMAIL_FROM` (not Outlook deferred snapshots, not SMTP).
+Daily digests build from the **current** Today / Pending list at send time, then send via Microsoft Graph **application** `Mail.Send` as the **From** saved in Email Scheduling (not Outlook deferred snapshots, not SMTP).
 
 1. Azure app registration:
-   - **Application** permission **Mail.Send** + admin consent  
+   - **Application** permission **Mail.Send** + admin consent
    - Client secret → `AZURE_CLIENT_SECRET` (the **Value**, not Secret ID)
 2. Server `.env` (see `.env.example`):
-   - `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`  
+   - `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`
      (ID/tenant can fall back to `NEXT_PUBLIC_AZURE_*`)
    - `TODO_EMAIL_CRON_SECRET`
-   - `TODO_EMAIL_FROM=sana.naveed@allumiax.com`
-   - `TODO_EMAIL_TO=...`
-3. Holidays + weekends skipped. Mon–Thu = Today; Friday = Pending 1–30 days.
-4. Cron on Hetzner (**3:00 PM Asia/Karachi = 10:00 UTC**):
+3. Set **From** / **To** in the app’s Email Scheduling tab (Save From / To). Cron uses those saved values.
+4. Holidays + weekends skipped. Mon–Thu = Today; Friday = Pending 1–30 days.
+5. Cron on Hetzner (**3:00 PM Asia/Karachi = 10:00 UTC**):
 
 ```bash
 # crontab -e  (as the deploy user)
@@ -159,7 +158,7 @@ Daily digests build from the **current** Today / Pending list at send time, then
 ```
 
 Use the same secret string as in `.env`. Optional re-send: append `?force=1`.  
-UI (**Today To-Do → Email Scheduling**) shows live preview + last run; To is editable.  
+UI (**Today To-Do → Email Scheduling**) shows live preview + last run; **From** and **To** are editable.  
 After changing env: `docker compose up -d --build` (or restart) so the container picks up secrets.
 
 ---

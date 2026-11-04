@@ -120,7 +120,7 @@ export async function GET(request: Request) {
         : null;
 
     return NextResponse.json({
-      from: TODO_EMAIL_FROM,
+      from: schedule.from || TODO_EMAIL_FROM,
       to: schedule.to || TODO_EMAIL_TO,
       selectedSlotKey: schedule.selectedSlotKey,
       entries: schedule.entries,
@@ -148,6 +148,7 @@ type PostBody = {
   subject?: string;
   rowCount?: number;
   to?: string;
+  from?: string;
 };
 
 export async function POST(request: Request) {
@@ -164,15 +165,16 @@ export async function POST(request: Request) {
       const store = withTodoEmailRecipients(
         await readTodoEmailSchedule(),
         String(body.to ?? ""),
+        String(body.from ?? ""),
       );
       const saved = await writeTodoEmailSchedule(store);
       const holidays = await readHolidays();
       return NextResponse.json({
         ok: true,
-        from: TODO_EMAIL_FROM,
+        from: saved.from,
         to: saved.to,
         upcoming: buildTodoEmailPreview(holidays, saved),
-        message: "Saved To recipients.",
+        message: "Saved From and To.",
       });
     }
 
@@ -222,8 +224,13 @@ export async function POST(request: Request) {
     // ensure — FireFly style: live snapshot → Graph deferred send plans
     let schedule = await readTodoEmailSchedule();
     const toIncoming = String(body.to ?? "").trim();
-    if (toIncoming) {
-      schedule = withTodoEmailRecipients(schedule, toIncoming);
+    const fromIncoming = String(body.from ?? "").trim();
+    if (toIncoming || fromIncoming) {
+      schedule = withTodoEmailRecipients(
+        schedule,
+        toIncoming || schedule.to,
+        fromIncoming || schedule.from,
+      );
       schedule = await writeTodoEmailSchedule(schedule);
     }
 
@@ -241,7 +248,7 @@ export async function POST(request: Request) {
     const recipients = normalizeTodoEmailList(schedule.to) || TODO_EMAIL_TO;
 
     return NextResponse.json({
-      from: TODO_EMAIL_FROM,
+      from: schedule.from || TODO_EMAIL_FROM,
       to: recipients,
       selectedSlotKey: schedule.selectedSlotKey,
       entries: schedule.entries,

@@ -34,7 +34,7 @@ function authorizeCron(request: Request): boolean {
 
 /**
  * Live send at cron time: builds Today's / Friday Pending list from current
- * Active Projects, then Graph app-only sendMail as TODO_EMAIL_FROM.
+ * Active Projects, then Graph app-only sendMail as schedule.from.
  *
  * Auth: Authorization: Bearer $TODO_EMAIL_CRON_SECRET
  * Optional: ?force=1 to re-send even if already sent today.
@@ -86,12 +86,8 @@ export async function POST(request: Request) {
       decision.kind,
       decision.dateKey,
     );
-    const to =
-      normalizeTodoEmailList(schedule.to) ||
-      normalizeTodoEmailList(process.env.TODO_EMAIL_TO?.trim() || "") ||
-      TODO_EMAIL_TO;
-    const from =
-      process.env.TODO_EMAIL_FROM?.trim() || TODO_EMAIL_FROM;
+    const to = normalizeTodoEmailList(schedule.to) || TODO_EMAIL_TO;
+    const from = schedule.from.trim() || TODO_EMAIL_FROM;
 
     await sendGraphAppMail({
       from,

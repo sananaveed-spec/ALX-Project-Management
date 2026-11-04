@@ -37,8 +37,9 @@ export function TodoEmailSchedulePanel() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const [fromValue, setFromValue] = useState(TODO_EMAIL_FROM);
   const [toValue, setToValue] = useState(TODO_EMAIL_TO);
-  const [savingTo, setSavingTo] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [todayDecision, setTodayDecision] = useState<TodayDecision | null>(
     null,
   );
@@ -55,12 +56,14 @@ export function TodoEmailSchedulePanel() {
           throw new Error("Could not load email schedule.");
         }
         const data = (await response.json()) as {
+          from?: string;
           to?: string;
           todayDecision?: TodayDecision;
           todayPreview?: TodayPreview | null;
           lastRun?: TodoEmailLastRun | null;
         };
         if (!cancelled) {
+          setFromValue(data.from || TODO_EMAIL_FROM);
           setToValue(data.to || TODO_EMAIL_TO);
           setTodayDecision(data.todayDecision ?? null);
           setTodayPreview(data.todayPreview ?? null);
@@ -88,37 +91,47 @@ export function TodoEmailSchedulePanel() {
     };
   }, []);
 
-  async function saveToRecipients() {
-    if (!canView || savingTo) {
+  async function saveRecipients() {
+    if (!canView || saving) {
       return;
     }
-    setSavingTo(true);
+    setSaving(true);
     setError(null);
     setInfo(null);
     try {
       const response = await fetch("/api/todo-email", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "save-to", to: toValue }),
+        body: JSON.stringify({
+          action: "save-to",
+          from: fromValue,
+          to: toValue,
+        }),
       });
       const data = (await response.json()) as {
         error?: string;
         message?: string;
+        from?: string;
         to?: string;
       };
       if (!response.ok) {
-        throw new Error(data.error || "Failed to save To.");
+        throw new Error(data.error || "Failed to save From / To.");
+      }
+      if (data.from) {
+        setFromValue(data.from);
       }
       if (data.to) {
         setToValue(data.to);
       }
-      setInfo(data.message || "Saved To recipients.");
+      setInfo(data.message || "Saved From and To.");
     } catch (saveError) {
       setError(
-        saveError instanceof Error ? saveError.message : "Failed to save To.",
+        saveError instanceof Error
+          ? saveError.message
+          : "Failed to save From / To.",
       );
     } finally {
-      setSavingTo(false);
+      setSaving(false);
     }
   }
 
@@ -148,17 +161,17 @@ export function TodoEmailSchedulePanel() {
             Live send at <strong>3:00 PM Pakistan Time</strong> via Hetzner cron.
             The server builds the list from the <em>current</em> Today / Pending
             data at send time (not weeks earlier). Mon–Thu: Today · Friday:
-            Pending 1–30 days · skips weekends and Holidays. From{" "}
-            {TODO_EMAIL_FROM}.
+            Pending 1–30 days · skips weekends and Holidays. From and To come
+            from the fields below (saved on this tab).
           </p>
         </div>
         <button
           type="button"
           className="button secondary"
-          onClick={() => void saveToRecipients()}
-          disabled={!ready || savingTo}
+          onClick={() => void saveRecipients()}
+          disabled={!ready || saving}
         >
-          {savingTo ? "Saving…" : "Save To"}
+          {saving ? "Saving…" : "Save From / To"}
         </button>
       </div>
 
@@ -177,10 +190,14 @@ export function TodoEmailSchedulePanel() {
         <label className="field">
           <span className="field-label">From</span>
           <input
-            className="field-input field-input--readonly"
+            className="field-input"
             type="text"
-            value={TODO_EMAIL_FROM}
-            readOnly
+            inputMode="email"
+            value={fromValue}
+            disabled={!ready || saving}
+            onChange={(event) => setFromValue(event.target.value)}
+            placeholder="sana.naveed@allumiax.com"
+            aria-label="From mailbox"
           />
         </label>
         <label className="field">
@@ -190,7 +207,7 @@ export function TodoEmailSchedulePanel() {
             type="text"
             inputMode="email"
             value={toValue}
-            disabled={!ready || savingTo}
+            disabled={!ready || saving}
             onChange={(event) => setToValue(event.target.value)}
             placeholder="name@allumiax.com, other@allumiax.com"
             aria-label="To recipients (comma-separated)"
@@ -241,7 +258,7 @@ export function TodoEmailSchedulePanel() {
           <span className="todo-email-hint">
             Preview refreshes whenever you open this tab. At 3:00 PM PKT the
             server rebuilds from Active Projects again, then sends via Graph
-            app-only as sana. See DEPLOY.md for the cron command.
+            using the From / To saved here. See DEPLOY.md for the cron command.
           </span>
         </div>
       </div>
