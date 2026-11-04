@@ -31,6 +31,15 @@ export const loginRequest = {
 };
 
 /**
+ * Token scopes for sending mail as the signed-in user via Microsoft Graph
+ * (FireFly-style deferred / immediate sendMail).
+ */
+export const mailSendRequest = {
+  scopes: ["Mail.Send", "User.Read"],
+  authority: azureAuthority,
+};
+
+/**
  * SharePoint (AllumiaX Engineering site) — create project folders.
  * Needs admin consent for Sites.Read.All + Files.ReadWrite.All.
  * Does NOT need Group.ReadWrite.All (we create folders, not new sites).

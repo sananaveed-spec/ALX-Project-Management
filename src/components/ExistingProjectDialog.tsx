@@ -715,7 +715,7 @@ export function ExistingProjectDialog({
               ) : basecampConnected ? (
                 <span className="field-hint">
                   Connected. Creates a Basecamp project named with the Full Name
-                  and files it into the TestBySana folder.
+                  and files it into the Engineering Projects folder.
                 </span>
               ) : (
                 <span className="field-hint">

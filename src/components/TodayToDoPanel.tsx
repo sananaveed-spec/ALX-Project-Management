@@ -20,8 +20,9 @@ import {
   isTodayReminder,
 } from "@/lib/project-history";
 import { useFitPageSize } from "@/lib/use-fit-page-size";
+import { TodoEmailSchedulePanel } from "@/components/TodoEmailSchedulePanel";
 
-type ToDoView = "today" | "pending";
+type ToDoView = "today" | "pending" | "email";
 
 const TABLE_HEADERS = [
   "Done",
@@ -251,6 +252,9 @@ export function TodayToDoPanel() {
   }
 
   const visibleRows = useMemo(() => {
+    if (toDoView === "email") {
+      return [];
+    }
     const byView = rows.filter((row) =>
       toDoView === "today" ? isTodayReminder(row) : isPendingReminder(row),
     );
@@ -352,36 +356,44 @@ export function TodayToDoPanel() {
     }
   }
 
+  const listView = toDoView !== "email";
+
   return (
     <section className="content-panel content-panel--actions">
       {ready ? (
         <div className="action-row naming-action-row">
-          <label className="field history-search-field">
-            <span className="visually-hidden">Search</span>
-            <input
-              className="field-input"
-              type="search"
-              placeholder="ID, project name, reminder, engineer…"
-              aria-label="Search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-            />
-          </label>
-          <label className="field customer-sort-field">
-            <span className="visually-hidden">Sort</span>
-            <select
-              className="field-input"
-              value={sort}
-              aria-label="Sort"
-              onChange={(event) => setSort(event.target.value as ListSort)}
-            >
-              {LIST_SORT_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          {listView ? (
+            <>
+              <label className="field history-search-field">
+                <span className="visually-hidden">Search</span>
+                <input
+                  className="field-input"
+                  type="search"
+                  placeholder="ID, project name, reminder, engineer…"
+                  aria-label="Search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </label>
+              <label className="field customer-sort-field">
+                <span className="visually-hidden">Sort</span>
+                <select
+                  className="field-input"
+                  value={sort}
+                  aria-label="Sort"
+                  onChange={(event) => setSort(event.target.value as ListSort)}
+                >
+                  {LIST_SORT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          ) : (
+            <div className="history-search-field" aria-hidden="true" />
+          )}
           <div className="naming-action-right">
             <button
               type="button"
@@ -409,24 +421,40 @@ export function TodayToDoPanel() {
             </button>
             <button
               type="button"
-              className="button danger"
-              disabled={selectedIds.length === 0 || saving}
-              onClick={() => void handleDeleteSelected()}
+              className={
+                toDoView === "email"
+                  ? "action-button action-button--pressed"
+                  : "action-button"
+              }
+              aria-pressed={toDoView === "email"}
+              onClick={() => setToDoView("email")}
             >
-              Delete
-              {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+              Email Scheduling
             </button>
+            {listView ? (
+              <button
+                type="button"
+                className="button danger"
+                disabled={selectedIds.length === 0 || saving}
+                onClick={() => void handleDeleteSelected()}
+              >
+                Delete
+                {selectedIds.length > 0 ? ` (${selectedIds.length})` : ""}
+              </button>
+            ) : null}
           </div>
         </div>
       ) : null}
 
-      {error ? (
+      {error && listView ? (
         <p className="form-message error" role="alert">
           {error}
         </p>
       ) : null}
 
-      {!ready ? (
+      {toDoView === "email" ? (
+        <TodoEmailSchedulePanel />
+      ) : !ready ? (
         <p className="table-empty">Loading today to-do list…</p>
       ) : (
         <>

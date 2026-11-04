@@ -28,7 +28,8 @@ export function getBasecampConfig() {
       process.env.BASECAMP_USER_AGENT?.trim() ||
       "ALX Project Management (support@allumiax.com)",
     // Home-screen folder (per connected user). Empty string skips filing.
-    folderName: process.env.BASECAMP_FOLDER_NAME?.trim() || "TestBySana",
+    folderName:
+      process.env.BASECAMP_FOLDER_NAME?.trim() || "Engineering Projects",
   };
 }
 

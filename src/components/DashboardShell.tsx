@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CompletedProjectsPanel } from "@/components/CompletedProjectsPanel";
 import { CustomerNamePanel } from "@/components/CustomerNamePanel";
 import { EngineerLoadPanel } from "@/components/EngineerLoadPanel";
+import { HolidaysPanel } from "@/components/HolidaysPanel";
 import { InvoicingHistoryPanel } from "@/components/InvoicingHistoryPanel";
 import { ProjectHistoryPanel } from "@/components/ProjectHistoryPanel";
 import { ProjectNamingPanel } from "@/components/ProjectNamingPanel";
@@ -53,6 +54,8 @@ export function DashboardShell({ userName }: DashboardShellProps) {
               <CompletedProjectsPanel />
             ) : activeTab === "invoicingHistory" ? (
               <InvoicingHistoryPanel />
+            ) : activeTab === "holidays" ? (
+              <HolidaysPanel />
             ) : (
               <EngineerLoadPanel />
             )}

@@ -135,6 +135,33 @@ Azure → App registration → **Authentication**
 - Keep local: `http://localhost:5174`  
 - Save  
 
+### To-Do Email (live 3:00 PM PKT cron + Graph app-only)
+
+Daily digests build from the **current** Today / Pending list at send time, then send via Microsoft Graph **application** `Mail.Send` as `TODO_EMAIL_FROM` (not Outlook deferred snapshots, not SMTP).
+
+1. Azure app registration:
+   - **Application** permission **Mail.Send** + admin consent  
+   - Client secret → `AZURE_CLIENT_SECRET` (the **Value**, not Secret ID)
+2. Server `.env` (see `.env.example`):
+   - `AZURE_CLIENT_ID` / `AZURE_TENANT_ID` / `AZURE_CLIENT_SECRET`  
+     (ID/tenant can fall back to `NEXT_PUBLIC_AZURE_*`)
+   - `TODO_EMAIL_CRON_SECRET`
+   - `TODO_EMAIL_FROM=sana.naveed@allumiax.com`
+   - `TODO_EMAIL_TO=...`
+3. Holidays + weekends skipped. Mon–Thu = Today; Friday = Pending 1–30 days.
+4. Cron on Hetzner (**3:00 PM Asia/Karachi = 10:00 UTC**):
+
+```bash
+# crontab -e  (as the deploy user)
+0 10 * * 1-5 curl -fsS -X POST \
+  -H "Authorization: Bearer YOUR_TODO_EMAIL_CRON_SECRET" \
+  http://127.0.0.1:3002/api/todo-email/run
+```
+
+Use the same secret string as in `.env`. Optional re-send: append `?force=1`.  
+UI (**Today To-Do → Email Scheduling**) shows live preview + last run; To is editable.  
+After changing env: `docker compose up -d --build` (or restart) so the container picks up secrets.
+
 ---
 
 ## 8. Basecamp OAuth

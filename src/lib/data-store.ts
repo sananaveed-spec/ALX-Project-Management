@@ -22,6 +22,12 @@ import {
   normalizeStatusMenu,
   type StatusMenuEntry,
 } from "@/lib/project-status-menu";
+import { normalizeHoliday, type Holiday } from "@/lib/holidays";
+import {
+  createEmptyTodoEmailScheduleStore,
+  normalizeTodoEmailScheduleStore,
+  type TodoEmailScheduleStore,
+} from "@/lib/todo-email";
 
 export function getDataDir() {
   return process.env.DATA_DIR?.trim() || path.join(process.cwd(), "data");
@@ -53,6 +59,14 @@ function projectHistoryPath() {
 
 function statusMenuPath() {
   return path.join(getDataDir(), "status-menu.json");
+}
+
+function holidaysPath() {
+  return path.join(getDataDir(), "holidays.json");
+}
+
+function todoEmailSchedulePath() {
+  return path.join(getDataDir(), "todo-email-schedule.json");
 }
 
 function isMissingFile(error: unknown) {
@@ -280,4 +294,72 @@ export async function writeStatusMenu(entries: StatusMenuEntry[]) {
     JSON.stringify(normalized, null, 2),
     "utf8",
   );
+}
+
+export async function readHolidays(): Promise<Holiday[]> {
+  await ensureDataDir();
+
+  try {
+    const raw = await readFile(holidaysPath(), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Invalid holidays.json format.");
+    }
+
+    return parsed
+      .filter(
+        (item): item is Partial<Holiday> & { id: string } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { id?: unknown }).id === "string",
+      )
+      .map(normalizeHoliday);
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw error;
+    }
+
+    await writeHolidays([]);
+    return [];
+  }
+}
+
+export async function writeHolidays(holidays: Holiday[]) {
+  await ensureDataDir();
+  const normalized = holidays.map(normalizeHoliday);
+  await writeFile(
+    holidaysPath(),
+    JSON.stringify(normalized, null, 2),
+    "utf8",
+  );
+  return normalized;
+}
+
+export async function readTodoEmailSchedule(): Promise<TodoEmailScheduleStore> {
+  await ensureDataDir();
+
+  try {
+    const raw = await readFile(todoEmailSchedulePath(), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    return normalizeTodoEmailScheduleStore(parsed);
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw error;
+    }
+
+    const empty = createEmptyTodoEmailScheduleStore();
+    await writeTodoEmailSchedule(empty);
+    return empty;
+  }
+}
+
+export async function writeTodoEmailSchedule(store: TodoEmailScheduleStore) {
+  await ensureDataDir();
+  const normalized = normalizeTodoEmailScheduleStore(store);
+  await writeFile(
+    todoEmailSchedulePath(),
+    JSON.stringify(normalized, null, 2),
+    "utf8",
+  );
+  return normalized;
 }
