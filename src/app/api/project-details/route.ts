@@ -4,12 +4,14 @@ import {
   readProjectDetails,
   readProjects,
   writeProjectDetails,
+  writeProjects,
 } from "@/lib/data-store";
 import {
   normalizeProjectDetail,
   syncProjectDetailsFromNaming,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
+import { applyEngineerToNamingByUniqueId } from "@/lib/projects";
 
 export const runtime = "nodejs";
 
@@ -116,6 +118,19 @@ export async function PATCH(request: Request) {
     const nextDetails = [...projectDetails];
     nextDetails[index] = nextRow;
     await writeProjectDetails(nextDetails);
+
+    // Keep Project Naming engineer in sync when Active Projects engineer changes.
+    if (typeof incoming.engineer === "string") {
+      const namingProjects = await readProjects();
+      const synced = applyEngineerToNamingByUniqueId(
+        namingProjects,
+        nextRow.displayId,
+        nextRow.engineer,
+      );
+      if (synced.changed) {
+        await writeProjects(synced.projects);
+      }
+    }
 
     return NextResponse.json({
       ok: true,

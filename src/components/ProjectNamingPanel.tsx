@@ -56,8 +56,6 @@ import { useFitPageSize } from "@/lib/use-fit-page-size";
 const NAMING_EXPORT_HEADERS = [
   "Project Name",
   "Customer",
-  "AP Email",
-  "A/P Number",
   "Award Date",
   "Year",
   "No",
@@ -196,7 +194,7 @@ function toggleSelectAllVisibleValues(
   return next;
 }
 
-const NAMING_TABLE_COL_COUNT = 16;
+const NAMING_TABLE_COL_COUNT = 14;
 
 const QB_FILTER_OPTIONS = ["Yes", "No"] as const;
 
@@ -811,11 +809,38 @@ export function ProjectNamingPanel() {
     ]);
   }
 
+  const duplicateUniqueIds = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const project of projects) {
+      const key = project.uniqueId.trim().toLowerCase();
+      if (!key) {
+        continue;
+      }
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    const duplicates = new Set<string>();
+    for (const [key, count] of counts) {
+      if (count > 1) {
+        duplicates.add(key);
+      }
+    }
+    return duplicates;
+  }, [projects]);
+
+  function namingRowClassName(project: ProjectEntry, isSelected: boolean) {
+    const classes: string[] = [];
+    if (isSelected) {
+      classes.push("row-selected");
+    }
+    const uniqueKey = project.uniqueId.trim().toLowerCase();
+    if (uniqueKey && duplicateUniqueIds.has(uniqueKey)) {
+      classes.push("row-uniqueid-duplicate");
+    }
+    return classes.length > 0 ? classes.join(" ") : undefined;
+  }
+
   const customerById = useMemo(() => {
-    const map = new Map<
-      string,
-      { color?: string; email: string; apNumber: string }
-    >();
+    const map = new Map<string, { color?: string }>();
     for (const customer of customers) {
       const id = customer.customerId.trim().toLowerCase();
       if (!id) {
@@ -826,8 +851,6 @@ export function ProjectNamingPanel() {
         normalizeCustomerColor(customer.color);
       map.set(id, {
         color: color || undefined,
-        email: customer.email.trim(),
-        apNumber: customer.apNumber.trim(),
       });
     }
     return map;
@@ -1211,13 +1234,9 @@ export function ProjectNamingPanel() {
     setExportError(null);
     try {
       const headers = [...NAMING_EXPORT_HEADERS];
-      const rows = visibleProjects.map((project) => {
-        const customer = customerLookup(project.customer);
-        return [
+      const rows = visibleProjects.map((project) => [
           project.projectName.trim(),
           project.customer.trim(),
-          customer?.email ?? "",
-          customer?.apNumber ?? "",
           formatAwardDate(project.awardDate),
           project.year.trim(),
           project.no.trim(),
@@ -1229,8 +1248,7 @@ export function ProjectNamingPanel() {
           yesNoFlag(project.basecamp),
           yesNoFlag(project.ats),
           yesNoFlag(project.sharepoint),
-        ];
-      });
+        ]);
       if (format === "excel") {
         exportTableAsExcel(headers, rows, "project-naming", "Project Naming");
       } else if (format === "pdf") {
@@ -2191,8 +2209,6 @@ export function ProjectNamingPanel() {
                     Project Name
                   </th>
                   <th className="col-sticky col-sticky-customer">Customer</th>
-                  <th className="col-text-md">AP Email</th>
-                  <th>A/P Number</th>
                   <th>Award Date</th>
                   <th>Year</th>
                   <th>No</th>
@@ -2242,13 +2258,20 @@ export function ProjectNamingPanel() {
                         {isExpanded
                           ? group.projects.map((project) => {
                           const isSelected = selectedIds.includes(project.id);
-                          const customer = customerLookup(project.customer);
 
                           return (
                             <tr
                               key={project.id}
-                              className={
-                                isSelected ? "row-selected" : undefined
+                              className={namingRowClassName(
+                                project,
+                                isSelected,
+                              )}
+                              title={
+                                duplicateUniqueIds.has(
+                                  project.uniqueId.trim().toLowerCase(),
+                                )
+                                  ? `UniqueID "${project.uniqueId}" already exists on another row.`
+                                  : undefined
                               }
                             >
                               <td className="col-check col-sticky col-sticky-check">
@@ -2268,8 +2291,6 @@ export function ProjectNamingPanel() {
                               >
                                 {project.customer}
                               </td>
-                              <td className="col-text-md">{cell(customer?.email)}</td>
-                              <td>{cell(customer?.apNumber)}</td>
                               <td>{formatAwardDate(project.awardDate)}</td>
                               <td>{project.year}</td>
                               <td>{project.no}</td>
@@ -2320,12 +2341,18 @@ export function ProjectNamingPanel() {
                     })
                   : pageProjects.map((project) => {
                       const isSelected = selectedIds.includes(project.id);
-                      const customer = customerLookup(project.customer);
 
                       return (
                         <tr
                           key={project.id}
-                          className={isSelected ? "row-selected" : undefined}
+                          className={namingRowClassName(project, isSelected)}
+                          title={
+                            duplicateUniqueIds.has(
+                              project.uniqueId.trim().toLowerCase(),
+                            )
+                              ? `UniqueID "${project.uniqueId}" already exists on another row.`
+                              : undefined
+                          }
                         >
                           <td className="col-check col-sticky col-sticky-check">
                             <input
@@ -2344,8 +2371,6 @@ export function ProjectNamingPanel() {
                           >
                             {project.customer}
                           </td>
-                          <td className="col-text-md">{cell(customer?.email)}</td>
-                          <td>{cell(customer?.apNumber)}</td>
                           <td>{formatAwardDate(project.awardDate)}</td>
                           <td>{project.year}</td>
                           <td>{project.no}</td>

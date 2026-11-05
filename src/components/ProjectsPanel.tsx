@@ -757,12 +757,14 @@ export function ProjectsPanel() {
   }, [priorityDropdownOpen]);
 
   function engineerFromNaming(row: ProjectDetailEntry) {
-    const fromNaming =
-      namingEngineerByUniqueId[row.displayId.trim().toLowerCase()];
-    if (fromNaming?.trim()) {
-      return fromNaming.trim();
+    // Prefer Active Projects value (kept in sync with Naming). Overlay fills blanks.
+    const fromRow = row.engineer.trim();
+    if (fromRow) {
+      return fromRow;
     }
-    return row.engineer.trim();
+    return (
+      namingEngineerByUniqueId[row.displayId.trim().toLowerCase()]?.trim() ?? ""
+    );
   }
 
   function pmNameFromNaming(row: ProjectDetailEntry) {
@@ -1916,6 +1918,27 @@ export function ProjectsPanel() {
         : toSave;
       persistedRowsRef.current = merged;
       setRows(merged);
+      if (field === "engineer") {
+        const uniqueKey = (
+          saved?.displayId ??
+          previousRow?.displayId ??
+          ""
+        )
+          .trim()
+          .toLowerCase();
+        const nextEngineer = (saved?.engineer ?? value).trim();
+        if (uniqueKey) {
+          setNamingEngineerByUniqueId((current) => {
+            const next = { ...current };
+            if (nextEngineer) {
+              next[uniqueKey] = nextEngineer;
+            } else {
+              delete next[uniqueKey];
+            }
+            return next;
+          });
+        }
+      }
       return true;
     } catch (saveError) {
       setRows(previous);
@@ -2361,6 +2384,7 @@ export function ProjectsPanel() {
     const stickyStyle = stickyCustomerStyle(row);
     const isSelected = selectedIds.includes(row.id);
     const isReadyInvoiced = isReadyToInvoice(row.invoiced);
+    const engineerValue = engineerFromNaming(row);
     const rowClass = [
       isSelected ? "row-selected" : "",
       isReadyInvoiced ? "row-ready-to-invoice" : "",
@@ -2407,7 +2431,36 @@ export function ProjectsPanel() {
                           ? formatDateLabel(row.projectInitializeDate)
                           : "—"}
                       </td>
-                      <td>{cell(engineerFromNaming(row))}</td>
+                      <td>
+                        <select
+                          className="field-input field-select table-select"
+                          value={engineerValue}
+                          disabled={
+                            savingKey === savingKeyFor(row.id, "engineer")
+                          }
+                          aria-label={`Engineer for ${row.projectName || row.displayId}`}
+                          onChange={(event) =>
+                            void handleFieldChange(
+                              row.id,
+                              "engineer",
+                              event.target.value,
+                            )
+                          }
+                        >
+                          <option value="">Select engineer</option>
+                          {engineerValue &&
+                          !engineerOptions.some(
+                            (user) => user.name.trim() === engineerValue,
+                          ) ? (
+                            <option value={engineerValue}>{engineerValue}</option>
+                          ) : null}
+                          {engineerOptions.map((user) => (
+                            <option key={user.id || user.name} value={user.name}>
+                              {user.name}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
                       <td>{cell(pmNameFromNaming(row))}</td>
                       <td>
                         <StatusMenuPicker

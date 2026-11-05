@@ -2168,6 +2168,25 @@ button.suggestion-link {
   background: var(--ready-invoice-bg) !important;
 }
 
+/* Project Naming — duplicate UniqueID rows */
+.projects-table tbody tr.row-uniqueid-duplicate {
+  background: #fde8c8;
+}
+
+.projects-table tbody tr.row-uniqueid-duplicate td,
+.projects-table--naming-sticky tbody tr.row-uniqueid-duplicate td.col-sticky {
+  background: #fde8c8;
+}
+
+.projects-table tbody tr.row-uniqueid-duplicate.row-selected,
+.projects-table tbody tr.row-uniqueid-duplicate.row-selected td,
+.projects-table--naming-sticky
+  tbody
+  tr.row-uniqueid-duplicate.row-selected
+  td.col-sticky {
+  background: #f5d4a0;
+}
+
 /* Pending 1–7 days — light orange (not yellow) */
 .projects-table tbody tr.row-todo-flag {
   background: #f7d0b8;

@@ -399,23 +399,26 @@ export function buildTodoEmailHtml(
     "Recent Activity",
     "Reminder",
     "Reminder Date",
+    "Days Due",
   ];
 
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="5" style="padding:8px;border:1px solid #ccc;color:#666;">No items for this period.</td></tr>`
+      ? `<tr><td colspan="6" style="padding:10px 12px;border:1px solid #ccc;color:#666;font-size:15px;">No items for this period.</td></tr>`
       : rows
           .map((row) => {
+            const daysDue = reminderDaysOverdue(row, dateKey);
             const cells = [
               row.displayId,
               row.projectName,
               row.recentActivity,
               row.pmActionItems,
               row.pmActionItemsDate.trim().slice(0, 10),
+              daysDue === null ? "—" : String(daysDue),
             ]
               .map(
                 (value) =>
-                  `<td style="padding:6px 8px;border:1px solid #ccc;vertical-align:top;">${escapeHtml(value.trim() || "—").replace(/\n/g, "<br/>")}</td>`,
+                  `<td style="padding:8px 10px;border:1px solid #ccc;vertical-align:top;font-size:15px;line-height:1.45;">${escapeHtml(value.trim() || "—").replace(/\n/g, "<br/>")}</td>`,
               )
               .join("");
             return `<tr>${cells}</tr>`;
@@ -423,15 +426,15 @@ export function buildTodoEmailHtml(
           .join("");
 
   // Fragment only (no html/body wrapper) so contentEditable edit/save round-trips cleanly.
-  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#111;">
-  <h2 style="font-size:16px;margin:0 0 12px;">${escapeHtml(title)}</h2>
-  <table style="border-collapse:collapse;width:100%;font-size:12px;">
+  return `<div style="font-family:Segoe UI,Arial,sans-serif;font-size:15px;color:#111;">
+  <h2 style="font-size:18px;margin:0 0 12px;">${escapeHtml(title)}</h2>
+  <table style="border-collapse:collapse;width:100%;font-size:15px;">
     <thead>
       <tr>
         ${header
           .map(
             (h) =>
-              `<th style="padding:6px 8px;border:1px solid #ccc;background:#f3f3f3;text-align:left;">${escapeHtml(h)}</th>`,
+              `<th style="padding:8px 10px;border:1px solid #ccc;background:#f3f3f3;text-align:left;font-size:14px;">${escapeHtml(h)}</th>`,
           )
           .join("")}
       </tr>

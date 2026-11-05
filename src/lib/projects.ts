@@ -250,6 +250,31 @@ export function sortProjectsNewestFirst(projects: ProjectEntry[]): ProjectEntry[
   });
 }
 
+/** Update Project Naming engineer for a UniqueID (Active Projects ↔ Naming sync). */
+export function applyEngineerToNamingByUniqueId(
+  projects: ProjectEntry[],
+  uniqueId: string,
+  engineer: string,
+): { projects: ProjectEntry[]; changed: boolean } {
+  const key = uniqueId.trim().toLowerCase();
+  if (!key) {
+    return { projects, changed: false };
+  }
+  const nextEngineer = engineer.trim();
+  let changed = false;
+  const next = projects.map((project) => {
+    if (project.uniqueId.trim().toLowerCase() !== key) {
+      return project;
+    }
+    if (project.engineer.trim() === nextEngineer) {
+      return project;
+    }
+    changed = true;
+    return normalizeProject({ ...project, engineer: nextEngineer });
+  });
+  return { projects: next, changed };
+}
+
 export function normalizeProject(
   raw: Partial<ProjectEntry> & { id: string },
 ): ProjectEntry {
