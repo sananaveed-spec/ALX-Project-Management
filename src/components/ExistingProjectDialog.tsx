@@ -542,12 +542,11 @@ export function ExistingProjectDialog({
               disabled={!selectedSourceId}
               onChange={(event) => {
                 const dateValue = event.target.value;
+                // Keep Year from the source project so UniqueID stays a revision
+                // of the original (e.g. ABE23001.1), even if Award Date is today.
                 setFilled((current) => ({
                   ...current,
                   awardDate: dateValue,
-                  year: dateValue
-                    ? dateValue.slice(2, 4) || current.year
-                    : current.year,
                 }));
               }}
             />
@@ -562,6 +561,12 @@ export function ExistingProjectDialog({
               readOnly
               tabIndex={-1}
             />
+            {selectedSourceId ? (
+              <span className="field-hint">
+                Locked to the existing project year (revisions keep the original
+                UniqueID year).
+              </span>
+            ) : null}
           </label>
 
           <label className="field">
@@ -714,8 +719,9 @@ export function ExistingProjectDialog({
                 <span className="field-hint">Checking Basecamp connection…</span>
               ) : basecampConnected ? (
                 <span className="field-hint">
-                  Connected. Creates a Basecamp project named with the Full Name
-                  and files it into the Engineering Projects folder.
+                  Connected. Creates a Basecamp project named with the Full Name,
+                  adds Talha Qamar and Sohail Khan by default, and files it into
+                  the Engineering Projects folder.
                 </span>
               ) : (
                 <span className="field-hint">
@@ -770,8 +776,9 @@ export function ExistingProjectDialog({
             </label>
             {createOnSharePoint ? (
               <span className="field-hint">
-                Creates Documents/#Projects/#{"{Customer}"}/{"{Year}"}
-                {"{No}"} - {"{Project Name}"}/ on EngProj.
+                Creates Documents/#Projects/{"{Customer}"}/{"{Year}"}
+                {"{No}"} - {"{Project Name}"}/ on EngProj
+                (e.g. #Projects/ABE/26003 - testnewsite/).
               </span>
             ) : null}
           </div>

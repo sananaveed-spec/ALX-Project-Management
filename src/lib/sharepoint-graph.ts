@@ -48,10 +48,10 @@ export function formatSharePointDateStamp(date = new Date()): string {
 
 const PROJECTS_ROOT_FOLDER = "#Projects";
 
-/** Customer library folder: `#ABE` */
+/** Customer library folder: `ABE` (no leading #). */
 export function buildSharePointCustomerFolderName(customer: string): string {
   const code = sanitizeSharePointFolderName(customer).replace(/^#+/, "");
-  return sanitizeSharePointFolderName(`#${code || "Customer"}`);
+  return sanitizeSharePointFolderName(code || "Customer");
 }
 
 /**
@@ -276,9 +276,9 @@ async function ensureChildFolder(
 /**
  * Create under Shared Documents:
  *   `#Projects/`
- *     `#{Customer}/`
+ *     `{Customer}/`
  *       `{Year}{No} - {Project Name}/`
- * e.g. `#Projects/#ABE/26003 - testnewsite/`
+ * e.g. `#Projects/ABE/26003 - testnewsite/`
  */
 export async function createProjectSharePointFolders(
   instance: IPublicClientApplication,

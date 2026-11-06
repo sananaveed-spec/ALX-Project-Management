@@ -1007,7 +1007,8 @@ export function NewProjectDialog({
               ) : basecampConnected ? (
                 <span className="field-hint">
                   Connected. Creates a Basecamp project named with the Full
-                  Name. Skips create if that name already exists on Basecamp.
+                  Name and adds Talha Qamar and Sohail Khan by default. Skips
+                  create if that name already exists on Basecamp.
                 </span>
               ) : (
                 <span className="field-hint">
@@ -1109,16 +1110,26 @@ export function NewProjectDialog({
               <span className="field-hint">
                 Creates{" "}
                 <code>
-                  Documents/#Projects/#{"{Customer}"}/{"{Year}"}
+                  Documents/#Projects/{"{Customer}"}/{"{Year}"}
                   {"{No}"} - {"{Project Name}"}/
                 </code>{" "}
-                on EngProj (e.g. #Projects/#ABE/26003 - testnewsite/). Requires
+                on EngProj (e.g. #Projects/ABE/26003 - testnewsite/). Requires
                 Sites.Read.All + Files.ReadWrite.All (admin consent).
               </span>
             ) : null}
           </div>
 
           <div className="dialog-actions">
+            {!values.customer.trim() ? (
+              <p className="field-hint error dialog-actions-hint" role="status">
+                Select a customer from the dropdown list (typing alone is not
+                enough). UniqueID needs the customer code.
+              </p>
+            ) : uniqueIdConflict ? (
+              <p className="field-hint error dialog-actions-hint" role="status">
+                {uniqueIdConflict}
+              </p>
+            ) : null}
             <button
               type="button"
               className="button secondary"
@@ -1134,7 +1145,7 @@ export function NewProjectDialog({
                 saving ||
                 sharePointConnecting ||
                 customersLoading ||
-                !values.customer ||
+                !values.customer.trim() ||
                 Boolean(uniqueIdConflict)
               }
             >

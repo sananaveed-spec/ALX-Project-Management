@@ -16,7 +16,30 @@ function requireEnv(name: string) {
   return value;
 }
 
+/** Always granted on new Basecamp projects (in addition to the connected user). */
+export const BASECAMP_DEFAULT_MEMBERS = [
+  { email: "talha.qamar@allumiax.com", name: "Talha Qamar" },
+  { email: "sohail@allumiax.com", name: "Sohail Khan" },
+] as const;
+
+export const BASECAMP_DEFAULT_MEMBER_EMAILS =
+  BASECAMP_DEFAULT_MEMBERS.map((member) => member.email);
+
+export type BasecampPerson = {
+  id: number;
+  name: string;
+  emailAddress: string;
+};
+
 export function getBasecampConfig() {
+  const defaultMembersEnv = process.env.BASECAMP_DEFAULT_MEMBER_EMAILS?.trim();
+  const defaultMemberEmails = defaultMembersEnv
+    ? defaultMembersEnv
+        .split(/[,;]+/)
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean)
+    : [...BASECAMP_DEFAULT_MEMBER_EMAILS];
+
   return {
     accountId: requireEnv("BASECAMP_ACCOUNT_ID"),
     clientId: requireEnv("BASECAMP_CLIENT_ID"),
@@ -30,6 +53,7 @@ export function getBasecampConfig() {
     // Home-screen folder (per connected user). Empty string skips filing.
     folderName:
       process.env.BASECAMP_FOLDER_NAME?.trim() || "Engineering Projects",
+    defaultMemberEmails,
   };
 }
 
@@ -39,10 +63,23 @@ type BasecampFolder = {
   bucket_ids?: number[];
 };
 
+function isTransientNetworkError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const message = `${error.message} ${
+    "cause" in error && error.cause instanceof Error ? error.cause.message : ""
+  }`;
+  return /fetch failed|eai_again|enotfound|econnreset|etimedout|network/i.test(
+    message,
+  );
+}
+
 async function basecampApiFetch(
   pathSuffix: string,
   init: RequestInit & { accessToken: string },
-) {
+  attempt = 1,
+): Promise<Response> {
   const { accountId, userAgent } = getBasecampConfig();
   const { accessToken, ...rest } = init;
   const headers = new Headers(rest.headers);
@@ -52,10 +89,24 @@ async function basecampApiFetch(
     headers.set("Content-Type", "application/json");
   }
 
-  return fetch(`https://3.basecampapi.com/${accountId}${pathSuffix}`, {
-    ...rest,
-    headers,
-  });
+  try {
+    return await fetch(`https://3.basecampapi.com/${accountId}${pathSuffix}`, {
+      ...rest,
+      headers,
+    });
+  } catch (error) {
+    if (attempt < 3 && isTransientNetworkError(error)) {
+      await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+      return basecampApiFetch(pathSuffix, init, attempt + 1);
+    }
+    const detail =
+      error instanceof Error
+        ? error.cause instanceof Error
+          ? `${error.message} (${error.cause.message})`
+          : error.message
+        : "Network error";
+    throw new Error(`Basecamp network error: ${detail}`);
+  }
 }
 
 function tokensPath() {
@@ -352,6 +403,156 @@ export async function findBasecampProjectByName(name: string): Promise<{
   };
 }
 
+function normalizeBasecampPerson(raw: {
+  id?: unknown;
+  name?: unknown;
+  email_address?: unknown;
+  emailAddress?: unknown;
+}): BasecampPerson | null {
+  const id = typeof raw.id === "number" ? raw.id : Number(raw.id);
+  if (!Number.isFinite(id)) {
+    return null;
+  }
+  const emailAddress = String(
+    raw.email_address ?? raw.emailAddress ?? "",
+  ).trim();
+  const name = String(raw.name ?? "").trim() || emailAddress || String(id);
+  return { id, name, emailAddress };
+}
+
+/** People visible on the connected Basecamp account. */
+export async function listBasecampPeople(): Promise<BasecampPerson[]> {
+  const accessToken = await getValidBasecampAccessToken();
+  if (!accessToken) {
+    throw new Error(
+      "Basecamp is not connected. Connect Basecamp first, then try again.",
+    );
+  }
+
+  const response = await basecampApiFetch("/people.json", {
+    method: "GET",
+    accessToken,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Basecamp list people failed: ${text}`);
+  }
+
+  const data = (await response.json()) as unknown;
+  const rows = Array.isArray(data) ? data : [];
+  const people: BasecampPerson[] = [];
+  const seen = new Set<number>();
+  for (const row of rows) {
+    if (!row || typeof row !== "object") {
+      continue;
+    }
+    const person = normalizeBasecampPerson(
+      row as {
+        id?: unknown;
+        name?: unknown;
+        email_address?: unknown;
+      },
+    );
+    if (!person || seen.has(person.id)) {
+      continue;
+    }
+    seen.add(person.id);
+    people.push(person);
+  }
+
+  return people.sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" }),
+  );
+}
+
+export async function grantBasecampProjectAccess(
+  accessToken: string,
+  projectId: number,
+  input: {
+    personIds?: number[];
+    create?: Array<{ name: string; email_address: string }>;
+  },
+): Promise<void> {
+  const uniqueIds = [
+    ...new Set((input.personIds ?? []).filter((id) => Number.isFinite(id))),
+  ];
+  const create = (input.create ?? []).filter(
+    (person) => person.email_address.trim() && person.name.trim(),
+  );
+  if (uniqueIds.length === 0 && create.length === 0) {
+    return;
+  }
+
+  const body: {
+    grant?: number[];
+    create?: Array<{ name: string; email_address: string }>;
+  } = {};
+  if (uniqueIds.length > 0) {
+    body.grant = uniqueIds;
+  }
+  if (create.length > 0) {
+    body.create = create;
+  }
+
+  const response = await basecampApiFetch(
+    `/projects/${projectId}/people/users.json`,
+    {
+      method: "PUT",
+      accessToken,
+      body: JSON.stringify(body),
+    },
+  );
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Basecamp grant project access failed: ${text}`);
+  }
+}
+
+function isUsableBasecampEmail(email: string): boolean {
+  const trimmed = email.trim().toLowerCase();
+  if (!trimmed || !trimmed.includes("@")) {
+    return false;
+  }
+  // Basecamp redacts emails for non-admins (e.g. j••••@•••••••••.•••).
+  return !trimmed.includes("•") && !trimmed.includes("...");
+}
+
+function personIdsForDefaultEmails(
+  people: BasecampPerson[],
+  emails: string[],
+): { ids: number[]; missing: string[] } {
+  const byEmail = new Map(
+    people
+      .filter((person) => isUsableBasecampEmail(person.emailAddress))
+      .map((person) => [person.emailAddress.toLowerCase(), person.id]),
+  );
+  const ids: number[] = [];
+  const missing: string[] = [];
+  for (const email of emails) {
+    const key = email.trim().toLowerCase();
+    if (!key) {
+      continue;
+    }
+    const id = byEmail.get(key);
+    if (typeof id === "number") {
+      ids.push(id);
+    } else {
+      missing.push(email);
+    }
+  }
+  return { ids, missing };
+}
+
+function defaultMembersToCreate(emails: string[]) {
+  const wanted = new Set(emails.map((email) => email.trim().toLowerCase()));
+  return BASECAMP_DEFAULT_MEMBERS.filter((member) =>
+    wanted.has(member.email.toLowerCase()),
+  ).map((member) => ({
+    name: member.name,
+    email_address: member.email,
+  }));
+}
+
 export async function createBasecampProject(input: {
   name: string;
   description?: string;
@@ -371,7 +572,7 @@ export async function createBasecampProject(input: {
     );
   }
 
-  const { folderName } = getBasecampConfig();
+  const { folderName, defaultMemberEmails } = getBasecampConfig();
   const response = await basecampApiFetch("/projects.json", {
     method: "POST",
     accessToken,
@@ -391,6 +592,40 @@ export async function createBasecampProject(input: {
     name?: string;
     app_url?: string;
   };
+
+  if (typeof project.id === "number") {
+    try {
+      let grantIds: number[] = [];
+      let createPeople = defaultMembersToCreate(defaultMemberEmails);
+
+      try {
+        const people = await listBasecampPeople();
+        const defaults = personIdsForDefaultEmails(
+          people,
+          defaultMemberEmails,
+        );
+        grantIds = defaults.ids;
+        createPeople = defaultMembersToCreate(defaults.missing);
+      } catch (listError) {
+        // People directory can fail on transient DNS; still invite defaults by email.
+        console.warn(
+          "Basecamp people list failed; inviting defaults by email.",
+          listError,
+        );
+      }
+
+      await grantBasecampProjectAccess(accessToken, project.id, {
+        personIds: grantIds,
+        create: createPeople,
+      });
+    } catch (error) {
+      const detail =
+        error instanceof Error ? error.message : "Unknown people error.";
+      throw new Error(
+        `Basecamp project was created, but adding people failed: ${detail}`,
+      );
+    }
+  }
 
   if (folderName && typeof project.id === "number") {
     try {
