@@ -115,6 +115,7 @@ export async function GET(request: Request) {
               snapshot.projectDetails,
               todayDecision.kind,
               todayDecision.dateKey,
+              todayDecision.asOfDate,
             ),
           }
         : null;

@@ -1,9 +1,13 @@
 import { getHolidayDateSet, type Holiday } from "@/lib/holidays";
 import {
   isPendingReminder,
+  isTodayReminder,
   reminderDaysOverdue,
 } from "@/lib/project-history";
-import type { ProjectDetailEntry } from "@/lib/project-details";
+import {
+  todayIsoInLosAngeles,
+  type ProjectDetailEntry,
+} from "@/lib/project-details";
 
 export const TODO_EMAIL_FROM = "sana.naveed@allumiax.com";
 export const TODO_EMAIL_TO = "Talha.qamar@allumiax.com";
@@ -236,9 +240,14 @@ export function todoEmailKindForDateKey(dateKey: string): TodoEmailKind | null {
   return null;
 }
 
+/** LA calendar date — same basis as the Today To-Do tab filters. */
+export function todoEmailAsOfDate(now = new Date()): string {
+  return todayIsoInLosAngeles(now);
+}
+
 /**
  * Live cron decision for "now" in Asia/Karachi:
- * skip weekend + holidays; Mon–Thu Today; Fri Pending 30d.
+ * skip weekend + holidays; Mon–Thu Today(+pending 1–30); Fri Pending 30d.
  */
 export function shouldSendTodoEmail(
   holidays: Holiday[],
@@ -248,8 +257,10 @@ export function shouldSendTodoEmail(
   dateKey: string;
   kind: TodoEmailKind | null;
   reason: string;
+  asOfDate: string;
 } {
   const dateKey = pakistanDateKey(now);
+  const asOfDate = todoEmailAsOfDate(now);
   const holidayDates = getHolidayDateSet(holidays);
   if (holidayDates.has(dateKey)) {
     return {
@@ -257,6 +268,7 @@ export function shouldSendTodoEmail(
       dateKey,
       kind: null,
       reason: `Skipped — holiday on ${dateKey}.`,
+      asOfDate,
     };
   }
   const kind = todoEmailKindForDateKey(dateKey);
@@ -266,16 +278,18 @@ export function shouldSendTodoEmail(
       dateKey,
       kind: null,
       reason: `Skipped — weekend (${dateKey}).`,
+      asOfDate,
     };
   }
   return {
     send: true,
     dateKey,
     kind,
+    asOfDate,
     reason:
       kind === "pending30"
         ? "Friday — send Pending (1–30 days) digest."
-        : "Weekday — send Today To-Do digest.",
+        : "Weekday — send Today + Pending (1–30 days) digest.",
   };
 }
 
@@ -328,57 +342,64 @@ export function buildTodoEmailSubject(
     : `Today To-Do — ${label}`;
 }
 
+function sortTodoEmailRows(rows: ProjectDetailEntry[]): ProjectDetailEntry[] {
+  return [...rows].sort((a, b) => {
+    const aDate = a.pmActionItemsDate.trim().slice(0, 10);
+    const bDate = b.pmActionItemsDate.trim().slice(0, 10);
+    if (aDate !== bDate) {
+      return aDate.localeCompare(bDate);
+    }
+    return (a.displayId || a.projectName).localeCompare(
+      b.displayId || b.projectName,
+      undefined,
+      { sensitivity: "base" },
+    );
+  });
+}
+
 export function filterTodoEmailRows(
   rows: ProjectDetailEntry[],
   kind: TodoEmailKind,
-  dateKey: string,
+  asOfDate: string,
 ): ProjectDetailEntry[] {
+  // Mon–Thu: Today tab items + Pending 1–30 (same open to-dos you see in the app).
+  // Friday: Pending 1–30 only.
   if (kind === "today") {
-    return rows
-      .filter((row) => {
-        const reminder = row.pmActionItemsDate.trim().slice(0, 10);
-        return Boolean(reminder) && reminder === dateKey;
-      })
-      .sort((a, b) =>
-        (a.displayId || a.projectName).localeCompare(
-          b.displayId || b.projectName,
-          undefined,
-          { sensitivity: "base" },
-        ),
-      );
+    return sortTodoEmailRows(
+      rows.filter((row) => {
+        if (isTodayReminder(row, asOfDate)) {
+          return true;
+        }
+        if (!isPendingReminder(row, asOfDate)) {
+          return false;
+        }
+        const days = reminderDaysOverdue(row, asOfDate);
+        return days !== null && days >= 1 && days <= TODO_EMAIL_ROLLING_DAYS;
+      }),
+    );
   }
 
-  return rows
-    .filter((row) => {
-      if (!isPendingReminder(row, dateKey)) {
+  return sortTodoEmailRows(
+    rows.filter((row) => {
+      if (!isPendingReminder(row, asOfDate)) {
         return false;
       }
-      const days = reminderDaysOverdue(row, dateKey);
-      return days !== null && days >= 1 && days <= 30;
-    })
-    .sort((a, b) => {
-      const aDate = a.pmActionItemsDate.trim().slice(0, 10);
-      const bDate = b.pmActionItemsDate.trim().slice(0, 10);
-      if (aDate !== bDate) {
-        return aDate.localeCompare(bDate);
-      }
-      return (a.displayId || a.projectName).localeCompare(
-        b.displayId || b.projectName,
-        undefined,
-        { sensitivity: "base" },
-      );
-    });
+      const days = reminderDaysOverdue(row, asOfDate);
+      return days !== null && days >= 1 && days <= TODO_EMAIL_ROLLING_DAYS;
+    }),
+  );
 }
 
 export function buildTodoEmailSlotContent(
   projectDetails: ProjectDetailEntry[],
   kind: TodoEmailKind,
   dateKey: string,
+  asOfDate: string = todoEmailAsOfDate(),
 ): { subject: string; html: string; rowCount: number } {
-  const filtered = filterTodoEmailRows(projectDetails, kind, dateKey);
+  const filtered = filterTodoEmailRows(projectDetails, kind, asOfDate);
   return {
     subject: buildTodoEmailSubject(kind, dateKey),
-    html: buildTodoEmailHtml(filtered, kind, dateKey),
+    html: buildTodoEmailHtml(filtered, kind, dateKey, asOfDate),
     rowCount: filtered.length,
   };
 }
@@ -387,34 +408,38 @@ export function buildTodoEmailHtml(
   rows: ProjectDetailEntry[],
   kind: TodoEmailKind,
   dateKey: string,
+  asOfDate: string = dateKey,
 ): string {
   const title =
     kind === "pending30"
       ? `Pending To-Do (last 30 days) — ${formatSubjectDate(dateKey)}`
       : `Today To-Do — ${formatSubjectDate(dateKey)}`;
 
+  const includeDaysDue = kind === "pending30";
   const header = [
     "PROJECT ID",
     "PROJECT NAME",
     "Recent Activity",
     "Reminder",
     "Reminder Date",
-    "Days Due",
+    ...(includeDaysDue ? (["Days Due"] as const) : []),
   ];
 
   const bodyRows =
     rows.length === 0
-      ? `<tr><td colspan="6" style="padding:10px 12px;border:1px solid #ccc;color:#666;font-size:15px;">No items for this period.</td></tr>`
+      ? `<tr><td colspan="${header.length}" style="padding:10px 12px;border:1px solid #ccc;color:#666;font-size:15px;">No items for this period.</td></tr>`
       : rows
           .map((row) => {
-            const daysDue = reminderDaysOverdue(row, dateKey);
+            const daysDue = reminderDaysOverdue(row, asOfDate);
             const cells = [
               row.displayId,
               row.projectName,
               row.recentActivity,
               row.pmActionItems,
               row.pmActionItemsDate.trim().slice(0, 10),
-              daysDue === null ? "—" : String(daysDue),
+              ...(includeDaysDue
+                ? [daysDue === null ? "—" : String(daysDue)]
+                : []),
             ]
               .map(
                 (value) =>

@@ -85,6 +85,7 @@ export async function POST(request: Request) {
       projectDetails,
       decision.kind,
       decision.dateKey,
+      decision.asOfDate,
     );
     const to = normalizeTodoEmailList(schedule.to) || TODO_EMAIL_TO;
     const from = schedule.from.trim() || TODO_EMAIL_FROM;
@@ -112,6 +113,7 @@ export async function POST(request: Request) {
       ok: true,
       skipped: false,
       dateKey: decision.dateKey,
+      asOfDate: decision.asOfDate,
       kind: decision.kind,
       subject: content.subject,
       rowCount: content.rowCount,

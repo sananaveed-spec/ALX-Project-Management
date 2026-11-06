@@ -149,7 +149,7 @@ export function TodoEmailSchedulePanel() {
     todayPreview?.kind === "pending30"
       ? "Pending (1–30 days)"
       : todayPreview?.kind === "today"
-        ? "Today To-Do"
+        ? "Today + Pending (1–30 days)"
         : "—";
 
   return (
@@ -160,9 +160,9 @@ export function TodoEmailSchedulePanel() {
           <p className="todo-email-subtitle">
             Live send at <strong>3:00 PM Pakistan Time</strong> via Hetzner cron.
             The server builds the list from the <em>current</em> Today / Pending
-            data at send time (not weeks earlier). Mon–Thu: Today · Friday:
-            Pending 1–30 days · skips weekends and Holidays. From and To come
-            from the fields below (saved on this tab).
+            data at send time (not weeks earlier). Mon–Thu: Today + Pending
+            1–30 days · Friday: Pending 1–30 days · skips weekends and Holidays.
+            From and To come from the fields below (saved on this tab).
           </p>
         </div>
         <button
