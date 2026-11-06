@@ -6,9 +6,11 @@ import {
   writeTodoEmailSchedule,
 } from "@/lib/data-store";
 import { sendGraphAppMail } from "@/lib/send-graph-app-mail";
+import { reminderDaysOverdue } from "@/lib/project-history";
 import {
   alreadySentTodoEmailToday,
   buildTodoEmailSlotContent,
+  filterTodoEmailRows,
   normalizeTodoEmailList,
   shouldSendTodoEmail,
   TODO_EMAIL_FROM,
@@ -38,6 +40,7 @@ function authorizeCron(request: Request): boolean {
  *
  * Auth: Authorization: Bearer $TODO_EMAIL_CRON_SECRET
  * Optional: ?force=1 to re-send even if already sent today.
+ * Optional: ?dryRun=1 to preview selected rows without sending or updating lastRun.
  */
 export async function POST(request: Request) {
   try {
@@ -53,6 +56,7 @@ export async function POST(request: Request) {
 
     const url = new URL(request.url);
     const force = url.searchParams.get("force") === "1";
+    const dryRun = url.searchParams.get("dryRun") === "1";
 
     const [holidays, projectDetails, schedule] = await Promise.all([
       readHolidays(),
@@ -64,9 +68,57 @@ export async function POST(request: Request) {
     if (!decision.send || !decision.kind) {
       return NextResponse.json({
         ok: true,
+        dryRun,
         skipped: true,
         dateKey: decision.dateKey,
+        asOfDate: decision.asOfDate,
         reason: decision.reason,
+      });
+    }
+
+    const content = buildTodoEmailSlotContent(
+      projectDetails,
+      decision.kind,
+      decision.dateKey,
+      decision.asOfDate,
+    );
+    const selectedRows = filterTodoEmailRows(
+      projectDetails,
+      decision.kind,
+      decision.asOfDate,
+    ).map((row) => {
+      const daysDue = reminderDaysOverdue(row, decision.asOfDate);
+      return {
+        displayId: row.displayId,
+        projectName: row.projectName,
+        reminder: row.pmActionItems,
+        reminderDate: row.pmActionItemsDate.trim().slice(0, 10),
+        daysDue: daysDue === null ? null : daysDue,
+      };
+    });
+    const to = normalizeTodoEmailList(schedule.to) || TODO_EMAIL_TO;
+    const from = schedule.from.trim() || TODO_EMAIL_FROM;
+
+    if (dryRun) {
+      const alreadySent = alreadySentTodoEmailToday(
+        schedule,
+        decision.dateKey,
+      );
+      return NextResponse.json({
+        ok: true,
+        dryRun: true,
+        wouldSend: !alreadySent || force,
+        alreadySent,
+        dateKey: decision.dateKey,
+        asOfDate: decision.asOfDate,
+        kind: decision.kind,
+        subject: content.subject,
+        rowCount: content.rowCount,
+        to,
+        from,
+        reason: decision.reason,
+        includeDaysDueColumn: decision.kind === "pending30",
+        rows: selectedRows,
       });
     }
 
@@ -80,15 +132,6 @@ export async function POST(request: Request) {
         lastRun: schedule.lastRun,
       });
     }
-
-    const content = buildTodoEmailSlotContent(
-      projectDetails,
-      decision.kind,
-      decision.dateKey,
-      decision.asOfDate,
-    );
-    const to = normalizeTodoEmailList(schedule.to) || TODO_EMAIL_TO;
-    const from = schedule.from.trim() || TODO_EMAIL_FROM;
 
     await sendGraphAppMail({
       from,
