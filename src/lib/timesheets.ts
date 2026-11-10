@@ -176,9 +176,12 @@ export async function createTimesheetsProject(input: {
   const projectName = input.name.trim();
   const existing = await findTimesheetsProjectByName(projectName);
   if (existing) {
-    throw new Error(
-      `An ATS / Timesheets project named "${projectName}" already exists. Uncheck Create on ATS, or use a different Full Name.`,
-    );
+    // Same as SharePoint: duplicate name = skip create, reuse existing.
+    return {
+      id: existing.id,
+      name: existing.name,
+      skipped: true as const,
+    };
   }
 
   const { apiToken } = getTimesheetsConfig();

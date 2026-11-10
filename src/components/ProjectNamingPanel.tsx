@@ -413,7 +413,16 @@ export function ProjectNamingPanel() {
     createOnBasecamp?: boolean;
     createOnAts?: boolean;
     createOnSharePoint?: boolean;
-  }) {
+  }): Promise<
+    | { ok: false }
+    | {
+        ok: true;
+        /** True when created or already existed (duplicate skip). */
+        basecampDone: boolean;
+        atsDone: boolean;
+        sharepointDone: boolean;
+      }
+  > {
     async function readErrorMessage(
       response: Response,
       fallback: string,
@@ -447,6 +456,15 @@ export function ProjectNamingPanel() {
       return error instanceof Error ? error.message : label;
     }
 
+    /** Create OK, soft-skip, or legacy 409 already-exists all count as done. */
+    function isCreateOrAlreadyExists(response: Response): boolean {
+      return response.ok || response.status === 409;
+    }
+
+    let basecampDone = false;
+    let atsDone = false;
+    let sharepointDone = false;
+
     if (values.createOnBasecamp) {
       try {
         const statusResponse = await fetch("/api/basecamp/status");
@@ -457,7 +475,7 @@ export function ProjectNamingPanel() {
           setError(
             "Connect Basecamp first (use Connect Basecamp in New Project), then save again.",
           );
-          return false;
+          return { ok: false };
         }
 
         const createResponse = await fetch("/api/basecamp/projects", {
@@ -473,7 +491,7 @@ export function ProjectNamingPanel() {
           }),
         });
 
-        if (!createResponse.ok) {
+        if (!isCreateOrAlreadyExists(createResponse)) {
           throw new Error(
             await readErrorMessage(
               createResponse,
@@ -481,6 +499,7 @@ export function ProjectNamingPanel() {
             ),
           );
         }
+        basecampDone = true;
       } catch (basecampError) {
         setError(
           networkErrorMessage(
@@ -488,7 +507,7 @@ export function ProjectNamingPanel() {
             "Failed to create Basecamp project.",
           ),
         );
-        return false;
+        return { ok: false };
       }
     }
 
@@ -502,7 +521,7 @@ export function ProjectNamingPanel() {
           setError(
             "ATS / Timesheets is not configured. Set TIMESHEETS_API_TOKEN and TIMESHEETS_ORGANIZATION_ID, then try again.",
           );
-          return false;
+          return { ok: false };
         }
 
         const createResponse = await fetch("/api/timesheets/projects", {
@@ -513,7 +532,7 @@ export function ProjectNamingPanel() {
           }),
         });
 
-        if (!createResponse.ok) {
+        if (!isCreateOrAlreadyExists(createResponse)) {
           throw new Error(
             await readErrorMessage(
               createResponse,
@@ -521,11 +540,12 @@ export function ProjectNamingPanel() {
             ),
           );
         }
+        atsDone = true;
       } catch (atsError) {
         setError(
           networkErrorMessage(atsError, "Failed to create ATS project."),
         );
-        return false;
+        return { ok: false };
       }
     }
 
@@ -534,7 +554,7 @@ export function ProjectNamingPanel() {
         const account = accounts[0] ?? instance.getActiveAccount();
         if (!account) {
           setError("Sign in again, then create the SharePoint folder.");
-          return false;
+          return { ok: false };
         }
         await createProjectSharePointFolders(instance, account, {
           projectName: values.projectName,
@@ -542,6 +562,7 @@ export function ProjectNamingPanel() {
           year: values.year,
           no: values.no,
         });
+        sharepointDone = true;
       } catch (sharePointError) {
         setError(
           networkErrorMessage(
@@ -549,11 +570,11 @@ export function ProjectNamingPanel() {
             "Failed to create SharePoint folders.",
           ),
         );
-        return false;
+        return { ok: false };
       }
     }
 
-    return true;
+    return { ok: true, basecampDone, atsDone, sharepointDone };
   }
 
   async function handleSaveProject(values: NewProjectFormValues) {
@@ -563,8 +584,8 @@ export function ProjectNamingPanel() {
       return false;
     }
 
-    const externalOk = await createOnExternalSystems(values);
-    if (!externalOk) {
+    const external = await createOnExternalSystems(values);
+    if (!external.ok) {
       return false;
     }
 
@@ -581,9 +602,10 @@ export function ProjectNamingPanel() {
       engineer: values.engineer?.trim() ?? "",
       pmName: values.pmName?.trim() ?? "",
       qb: values.qb ? "Yes" : "No",
-      basecamp: values.createOnBasecamp ? "Yes" : "",
-      ats: values.createOnAts ? "Yes" : "",
-      sharepoint: values.createOnSharePoint ? "Yes" : "",
+      // Mark Yes when created or when duplicate already existed (skip).
+      basecamp: external.basecampDone ? "Yes" : "",
+      ats: external.atsDone ? "Yes" : "",
+      sharepoint: external.sharepointDone ? "Yes" : "",
     };
     const nextProjects = [nextProject, ...projects];
 
@@ -613,8 +635,8 @@ export function ProjectNamingPanel() {
       return false;
     }
 
-    const externalOk = await createOnExternalSystems(values);
-    if (!externalOk) {
+    const external = await createOnExternalSystems(values);
+    if (!external.ok) {
       return false;
     }
 
@@ -631,9 +653,9 @@ export function ProjectNamingPanel() {
       engineer: values.engineer?.trim() ?? "",
       pmName: values.pmName?.trim() ?? "",
       qb: values.qb ? "Yes" : "No",
-      basecamp: values.createOnBasecamp ? "Yes" : "",
-      ats: values.createOnAts ? "Yes" : "",
-      sharepoint: values.createOnSharePoint ? "Yes" : "",
+      basecamp: external.basecampDone ? "Yes" : "",
+      ats: external.atsDone ? "Yes" : "",
+      sharepoint: external.sharepointDone ? "Yes" : "",
     };
     const nextProjects = [nextProject, ...projects];
 
@@ -676,14 +698,14 @@ export function ProjectNamingPanel() {
     const alreadyAts = editingProject.ats?.trim().toLowerCase() === "yes";
     const alreadySharePoint =
       editingProject.sharepoint?.trim().toLowerCase() === "yes";
-    const externalOk = await createOnExternalSystems({
+    const external = await createOnExternalSystems({
       ...values,
       createOnBasecamp: Boolean(values.createOnBasecamp) && !alreadyBasecamp,
       createOnAts: Boolean(values.createOnAts) && !alreadyAts,
       createOnSharePoint:
         Boolean(values.createOnSharePoint) && !alreadySharePoint,
     });
-    if (!externalOk) {
+    if (!external.ok) {
       return false;
     }
 
@@ -702,21 +724,12 @@ export function ProjectNamingPanel() {
             engineer: values.engineer?.trim() ?? "",
             pmName: values.pmName?.trim() ?? "",
             qb: values.qb ? "Yes" : "No",
-            basecamp: values.createOnBasecamp
-              ? "Yes"
-              : alreadyBasecamp
-                ? project.basecamp
-                : "",
-            ats: values.createOnAts
-              ? "Yes"
-              : alreadyAts
-                ? project.ats
-                : "",
-            sharepoint: values.createOnSharePoint
-              ? "Yes"
-              : alreadySharePoint
-                ? project.sharepoint
-                : "",
+            // Keep existing Yes, or flip No→Yes when create/skip succeeded.
+            basecamp:
+              alreadyBasecamp || external.basecampDone ? "Yes" : "",
+            ats: alreadyAts || external.atsDone ? "Yes" : "",
+            sharepoint:
+              alreadySharePoint || external.sharepointDone ? "Yes" : "",
           }
         : project,
     );

@@ -23,7 +23,11 @@ export async function POST(request: Request) {
       description: body.description?.trim() || undefined,
     });
 
-    return NextResponse.json({ ok: true, project });
+    return NextResponse.json({
+      ok: true,
+      project,
+      skipped: Boolean(project.skipped),
+    });
   } catch (error) {
     const message =
       error instanceof Error
@@ -31,9 +35,7 @@ export async function POST(request: Request) {
         : "Failed to create Basecamp project.";
     const status = message.toLowerCase().includes("not connected")
       ? 401
-      : message.toLowerCase().includes("already exists")
-        ? 409
-        : 500;
+      : 500;
     return NextResponse.json({ error: message }, { status });
   }
 }

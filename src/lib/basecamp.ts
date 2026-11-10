@@ -353,6 +353,85 @@ export async function fileProjectIntoBasecampFolder(
   await createBasecampFolder(accessToken, folderName, nextIds);
 }
 
+/** Extract `rel="next"` URL path (after account id) from a Basecamp Link header. */
+function nextBasecampPagePath(
+  linkHeader: string | null,
+  accountId: string,
+): string | null {
+  if (!linkHeader) {
+    return null;
+  }
+  for (const part of linkHeader.split(",")) {
+    const match = part
+      .trim()
+      .match(/^<([^>]+)>\s*;\s*rel="?next"?/i);
+    if (!match?.[1]) {
+      continue;
+    }
+    const nextUrl = match[1];
+    const marker = `/${accountId}`;
+    const idx = nextUrl.indexOf(marker);
+    if (idx === -1) {
+      continue;
+    }
+    return nextUrl.slice(idx + marker.length);
+  }
+  return null;
+}
+
+/** Walk every page of active Basecamp projects (Link: rel="next"). */
+async function listAllBasecampProjects(accessToken: string): Promise<
+  Array<{
+    id: number;
+    name: string;
+    app_url?: string;
+  }>
+> {
+  const { accountId } = getBasecampConfig();
+  const projects: Array<{
+    id: number;
+    name: string;
+    app_url?: string;
+  }> = [];
+  let pathSuffix: string | null = "/projects.json?status=active";
+
+  while (pathSuffix) {
+    const response = await basecampApiFetch(pathSuffix, {
+      method: "GET",
+      accessToken,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Basecamp list projects failed: ${text}`);
+    }
+
+    const page = (await response.json()) as Array<{
+      id?: number;
+      name?: string;
+      app_url?: string;
+      status?: string;
+    }>;
+
+    for (const project of page) {
+      if (typeof project.id !== "number") {
+        continue;
+      }
+      projects.push({
+        id: project.id,
+        name: project.name?.trim() || "",
+        app_url: project.app_url,
+      });
+    }
+
+    pathSuffix = nextBasecampPagePath(
+      response.headers.get("Link"),
+      accountId,
+    );
+  }
+
+  return projects;
+}
+
 export async function findBasecampProjectByName(name: string): Promise<{
   id: number;
   name: string;
@@ -370,35 +449,18 @@ export async function findBasecampProjectByName(name: string): Promise<{
     return null;
   }
 
-  const response = await basecampApiFetch("/projects.json", {
-    method: "GET",
-    accessToken,
-  });
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Basecamp list projects failed: ${text}`);
-  }
-
-  const projects = (await response.json()) as Array<{
-    id?: number;
-    name?: string;
-    app_url?: string;
-    status?: string;
-  }>;
-
+  const projects = await listAllBasecampProjects(accessToken);
   const match = projects.find(
-    (project) =>
-      typeof project.id === "number" &&
-      project.name?.trim().toLowerCase() === target,
+    (project) => project.name.trim().toLowerCase() === target,
   );
 
-  if (!match || typeof match.id !== "number") {
+  if (!match) {
     return null;
   }
 
   return {
     id: match.id,
-    name: match.name?.trim() || name.trim(),
+    name: match.name || name.trim(),
     app_url: match.app_url,
   };
 }
@@ -556,7 +618,12 @@ function defaultMembersToCreate(emails: string[]) {
 export async function createBasecampProject(input: {
   name: string;
   description?: string;
-}) {
+}): Promise<{
+  id?: number;
+  name?: string;
+  app_url?: string;
+  skipped?: boolean;
+}> {
   const accessToken = await getValidBasecampAccessToken();
   if (!accessToken) {
     throw new Error(
@@ -567,9 +634,13 @@ export async function createBasecampProject(input: {
   const projectName = input.name.trim();
   const existing = await findBasecampProjectByName(projectName);
   if (existing) {
-    throw new Error(
-      `A Basecamp project named "${projectName}" already exists. Uncheck Create on Basecamp, or use a different Full Name.`,
-    );
+    // Same as SharePoint: duplicate name = skip create, reuse existing.
+    return {
+      id: existing.id,
+      name: existing.name,
+      app_url: existing.app_url,
+      skipped: true,
+    };
   }
 
   const { folderName, defaultMemberEmails } = getBasecampConfig();

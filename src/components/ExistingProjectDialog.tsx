@@ -721,7 +721,8 @@ export function ExistingProjectDialog({
                 <span className="field-hint">
                   Connected. Creates a Basecamp project named with the Full Name,
                   adds Talha Qamar and Sohail Khan by default, and files it into
-                  the Engineering Projects folder.
+                  the Engineering Projects folder. Skips create if that name
+                  already exists on Basecamp.
                 </span>
               ) : (
                 <span className="field-hint">
@@ -751,7 +752,7 @@ export function ExistingProjectDialog({
               ) : atsConfigured ? (
                 <span className="field-hint">
                   Configured. Creates a Timesheets project named with the Full
-                  Name.
+                  Name. Skips create if that name already exists on ATS.
                 </span>
               ) : (
                 <span className="field-hint">
