@@ -10,7 +10,6 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { useMsal } from "@azure/msal-react";
 import {
   NewCustomerDialog,
   type NewCustomerFormValues,
@@ -21,7 +20,6 @@ import {
   toDarkCustomerColor,
   type CustomerEntry,
 } from "@/lib/customers";
-import { ensureSharePointAccess } from "@/lib/sharepoint-graph";
 import {
   buildFullName,
   buildUniqueId,
@@ -131,12 +129,9 @@ export function NewProjectDialog({
   existingProjects = [],
   excludeProjectId = null,
 }: NewProjectDialogProps) {
-  const { instance, accounts } = useMsal();
   const titleId = useId();
   const customerListId = useId();
   const [values, setValues] = useState<ProjectFormFields>(emptyForm);
-  const [sharePointHint, setSharePointHint] = useState<string | null>(null);
-  const [sharePointConnecting, setSharePointConnecting] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [customers, setCustomers] = useState<CustomerEntry[]>([]);
   const [customersLoading, setCustomersLoading] = useState(false);
@@ -226,8 +221,6 @@ export function NewProjectDialog({
     setCreateOnBasecamp(initialCreateOnBasecamp);
     setCreateOnAts(initialCreateOnAts);
     setCreateOnSharePoint(initialCreateOnSharePoint);
-    setSharePointHint(null);
-    setSharePointConnecting(false);
     setQb(initialQb);
     setEngineersError(null);
     setSaving(false);
@@ -1054,43 +1047,9 @@ export function NewProjectDialog({
                 type="checkbox"
                 checked={createOnSharePoint}
                 disabled={sharePointLocked || saving}
-                onChange={(event) => {
-                  const checked = event.target.checked;
-                  setCreateOnSharePoint(checked);
-                  setSharePointHint(null);
-                  if (!checked || sharePointLocked) {
-                    setSharePointConnecting(false);
-                    return;
-                  }
-                  const account = accounts[0] ?? instance.getActiveAccount();
-                  if (!account) {
-                    setSharePointHint(
-                      "Sign in again, then check Create on SharePoint.",
-                    );
-                    setCreateOnSharePoint(false);
-                    return;
-                  }
-                  setSharePointConnecting(true);
-                  setSharePointHint(
-                    "Connecting to SharePoint… finish the Microsoft popup, then click Save.",
-                  );
-                  void ensureSharePointAccess(instance, account)
-                    .then(() => {
-                      setSharePointConnecting(false);
-                      setSharePointHint(
-                        "SharePoint connected. Folder will be created on Save.",
-                      );
-                    })
-                    .catch((accessError) => {
-                      setSharePointConnecting(false);
-                      setCreateOnSharePoint(false);
-                      setSharePointHint(
-                        accessError instanceof Error
-                          ? accessError.message
-                          : "Could not connect to SharePoint.",
-                      );
-                    });
-                }}
+                onChange={(event) =>
+                  setCreateOnSharePoint(event.target.checked)
+                }
               />
               <span>Create on SharePoint?</span>
             </label>
@@ -1098,23 +1057,18 @@ export function NewProjectDialog({
               <span className="field-hint">
                 Already created on SharePoint for this project (read-only).
               </span>
-            ) : sharePointHint ? (
-              <span
-                className={
-                  createOnSharePoint ? "field-hint" : "field-hint error"
-                }
-              >
-                {sharePointHint}
-              </span>
             ) : createOnSharePoint ? (
               <span className="field-hint">
-                Creates{" "}
+                On <strong>Save</strong>, a Microsoft window may open once.
+                That window is only to allow folder creation on EngProj — click{" "}
+                <strong>Accept</strong> (or Continue), then return here. Folder
+                path:{" "}
                 <code>
-                  Documents/#Projects/{"{Customer}"}/{"{Year}"}
+                  #Projects/{"{Customer}"}/{"{Year}"}
                   {"{No}"} - {"{Project Name}"}/
                 </code>{" "}
-                on EngProj (e.g. #Projects/ABE/26003 - testnewsite/). Requires
-                Sites.Read.All + Files.ReadWrite.All (admin consent).
+                (example: #Projects/ABE/26003 - testnewsite/). Allow popups for
+                this site if the window is blocked.
               </span>
             ) : null}
           </div>
@@ -1143,7 +1097,6 @@ export function NewProjectDialog({
               className="button primary"
               disabled={
                 saving ||
-                sharePointConnecting ||
                 customersLoading ||
                 !values.customer.trim() ||
                 Boolean(uniqueIdConflict)

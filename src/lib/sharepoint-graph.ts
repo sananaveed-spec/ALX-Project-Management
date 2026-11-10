@@ -81,29 +81,25 @@ function sharePointAuthErrorMessage(error: unknown): string {
 
   if (/interaction_in_progress/i.test(code) || /interaction_in_progress/i.test(message)) {
     return (
-      "A Microsoft sign-in popup is already open. Finish or close that popup, " +
-      "wait a second, then try Create on SharePoint again (do not click Save while the popup is open)."
+      "A Microsoft window is already open. Finish or close it, wait a second, then click Save again."
     );
   }
   if (/timed_out|monitor_window_timeout/i.test(code) || /timed_out/i.test(message)) {
     return (
-      "SharePoint sign-in timed out. Allow popups for this site, then check " +
-      "Create on SharePoint again (or Sign out and Sign in). Also confirm Azure " +
-      "admin consent for Sites.Read.All + Files.ReadWrite.All."
+      "Microsoft window timed out. Allow popups for this site, Sign out and Sign in, then Save again."
     );
   }
   if (/popup_window_error|empty_window_error/i.test(code)) {
     return (
-      "SharePoint popup was blocked. Allow popups for localhost / this site, then try again."
+      "Microsoft window was blocked by the browser. Allow popups for this site, then click Save again."
     );
   }
   if (/user_cancelled|access_denied/i.test(code)) {
-    return "SharePoint permission was cancelled. Check Create on SharePoint and approve when prompted.";
+    return "You cancelled the Microsoft permission window. Check Create on SharePoint and click Save again, then Accept.";
   }
   if (/consent_required|interaction_required|login_required/i.test(code)) {
     return (
-      "SharePoint needs permission. An admin must grant Sites.Read.All + " +
-      "Files.ReadWrite.All on the Azure app, then Sign out and Sign in."
+      "Microsoft needs permission to create EngProj folders. Click Accept in the Microsoft window, or ask an admin if Accept is not offered."
     );
   }
   return message;
@@ -136,7 +132,7 @@ async function acquireSharePointToken(
           });
           return result.accessToken;
         } catch (popupError) {
-          // If another MSAL interaction is stuck, wait briefly and retry silent once.
+          // If another MSAL interaction is stuck, clear leftover redirect hash and retry.
           const code =
             popupError &&
             typeof popupError === "object" &&
@@ -144,15 +140,35 @@ async function acquireSharePointToken(
               ? String((popupError as { errorCode?: string }).errorCode ?? "")
               : "";
           if (/interaction_in_progress/i.test(code)) {
-            await new Promise((resolve) => window.setTimeout(resolve, 1500));
             try {
-              const retry = await instance.acquireTokenSilent({
+              await instance.handleRedirectPromise();
+            } catch {
+              // ignore — we only need to clear the in-progress lock
+            }
+            if (typeof window !== "undefined" && window.location.hash) {
+              window.history.replaceState(
+                null,
+                "",
+                `${window.location.pathname}${window.location.search}`,
+              );
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 800));
+            try {
+              const retrySilent = await instance.acquireTokenSilent({
                 ...sharePointRequest,
                 account,
               });
-              return retry.accessToken;
+              return retrySilent.accessToken;
             } catch {
-              throw new Error(sharePointAuthErrorMessage(popupError));
+              try {
+                const retryPopup = await instance.acquireTokenPopup({
+                  ...sharePointRequest,
+                  account,
+                });
+                return retryPopup.accessToken;
+              } catch {
+                throw new Error(sharePointAuthErrorMessage(popupError));
+              }
             }
           }
           throw new Error(sharePointAuthErrorMessage(popupError));

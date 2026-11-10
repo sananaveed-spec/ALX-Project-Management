@@ -24,6 +24,24 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // No redirect in progress on a normal page load.
       }
 
+      // Clear leftover OAuth hash (#code=...) so MSAL popups are not blocked
+      // by a stale interaction_in_progress / unfinished redirect.
+      if (typeof window !== "undefined" && window.location.hash) {
+        const hash = window.location.hash;
+        if (
+          /[#&]code=/.test(hash) ||
+          /[#&]error=/.test(hash) ||
+          /[#&]client_info=/.test(hash) ||
+          /[#&]state=/.test(hash)
+        ) {
+          window.history.replaceState(
+            null,
+            "",
+            `${window.location.pathname}${window.location.search}`,
+          );
+        }
+      }
+
       const accounts = msalInstance.getAllAccounts();
       if (accounts.length > 0 && !msalInstance.getActiveAccount()) {
         msalInstance.setActiveAccount(accounts[0]);

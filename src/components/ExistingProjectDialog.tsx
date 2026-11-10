@@ -776,9 +776,14 @@ export function ExistingProjectDialog({
             </label>
             {createOnSharePoint ? (
               <span className="field-hint">
-                Creates Documents/#Projects/{"{Customer}"}/{"{Year}"}
-                {"{No}"} - {"{Project Name}"}/ on EngProj
-                (e.g. #Projects/ABE/26003 - testnewsite/).
+                On <strong>Save</strong>, a Microsoft window may open once —
+                click <strong>Accept</strong> so folders can be created on
+                EngProj, then return here. Path:{" "}
+                <code>
+                  #Projects/{"{Customer}"}/{"{Year}"}
+                  {"{No}"} - {"{Project Name}"}/
+                </code>
+                . Allow popups if the window is blocked.
               </span>
             ) : null}
           </div>
