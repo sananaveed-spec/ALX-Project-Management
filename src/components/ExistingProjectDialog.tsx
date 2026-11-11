@@ -10,7 +10,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { buildFullName, buildUniqueId, getNextPointNo, getUniqueIdConflict, type ProjectEntry } from "@/lib/projects";
+import {
+  buildFullName,
+  buildUniqueId,
+  getNextPointNo,
+  getUniqueIdConflict,
+  normalizeProjectYear,
+  type ProjectEntry,
+} from "@/lib/projects";
 
 export type ExistingProjectSaveValues = {
   projectName: string;
@@ -325,7 +332,7 @@ export function ExistingProjectDialog({
       projectName: project.projectName,
       customer: project.customer,
       awardDate: project.awardDate,
-      year: project.year,
+      year: normalizeProjectYear(project.year),
       no: nextNo,
     });
     setSelectedSourceId(project.id);
@@ -392,14 +399,18 @@ export function ExistingProjectDialog({
     setUniqueIdError(null);
     setSaving(true);
     try {
+      const year = normalizeProjectYear(filled.year);
       const result = await onSave?.({
         projectName: filled.projectName,
         customer: filled.customer,
         awardDate: filled.awardDate,
-        year: filled.year,
+        year,
         no: filled.no.trim(),
-        uniqueId,
-        fullName,
+        uniqueId: buildUniqueId(filled.customer, year, filled.no.trim()),
+        fullName: buildFullName(
+          buildUniqueId(filled.customer, year, filled.no.trim()),
+          filled.projectName,
+        ),
         engineer: engineer.trim() || undefined,
         pmName: pmName.trim() || undefined,
         createOnBasecamp,

@@ -21,17 +21,43 @@ export type ProjectEntry = {
   sharepoint: string;
 };
 
-/** UniqueID = Customer + Year + No (e.g. ESR + 19 + 001 → ESR19001). */
+/**
+ * Display / storage year as 4 digits (2018, 2026).
+ * 2-digit values expand with pivot: 00–69 → 2000–2069, 70–99 → 1970–1999.
+ * UniqueID still uses the last 2 digits via yearPartForUniqueId.
+ */
+export function normalizeProjectYear(year: string): string {
+  const digits = year.trim().replace(/\D/g, "");
+  if (!digits) {
+    return "";
+  }
+  if (digits.length >= 4) {
+    return digits.slice(0, 4);
+  }
+  if (digits.length === 3) {
+    return `2${digits}`.slice(0, 4);
+  }
+  if (digits.length === 1) {
+    return String(2000 + Number(digits));
+  }
+  const yy = Number.parseInt(digits, 10);
+  if (!Number.isFinite(yy)) {
+    return year.trim();
+  }
+  return String(yy <= 69 ? 2000 + yy : 1900 + yy);
+}
+
+/** UniqueID = Customer + Year + No (e.g. ESR + 2019 → 19 + 001 → ESR19001). */
 export function buildUniqueId(customer: string, year: string, no: string) {
-  const yearPart = year.trim().length >= 2 ? year.trim().slice(-2) : year.trim();
+  const yearPart = yearPartForUniqueId(year);
   const noTrim = no.trim();
   const noPart = /^\d+$/.test(noTrim) ? noTrim.padStart(3, "0") : noTrim;
   return `${customer.trim()}${yearPart}${noPart}`;
 }
 
 export function yearPartForUniqueId(year: string) {
-  const trimmed = year.trim();
-  return trimmed.length >= 2 ? trimmed.slice(-2) : trimmed;
+  const normalized = normalizeProjectYear(year);
+  return normalized.length >= 2 ? normalized.slice(-2) : normalized;
 }
 
 /** Parse UniqueID suffix after Customer+Year: "001", "001.1", "217.1". */
@@ -279,7 +305,7 @@ export function normalizeProject(
   raw: Partial<ProjectEntry> & { id: string },
 ): ProjectEntry {
   const customer = raw.customer ?? "";
-  const year = raw.year ?? "";
+  const year = normalizeProjectYear(raw.year ?? "");
   const no = raw.no ?? "";
   const projectName = raw.projectName ?? "";
   const uniqueId = raw.uniqueId?.trim() || buildUniqueId(customer, year, no);

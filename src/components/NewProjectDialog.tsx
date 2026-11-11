@@ -23,6 +23,8 @@ import {
 import {
   buildFullName,
   buildUniqueId,
+  normalizeProjectYear,
+  yearPartForUniqueId,
   getMaxUsedNoForCustomerYear,
   getUniqueIdConflict,
   type ProjectEntry,
@@ -214,7 +216,13 @@ export function NewProjectDialog({
 
     setValues(
       initialValues
-        ? { ...emptyForm, ...initialValues, engineer: initialValues.engineer ?? "", pmName: initialValues.pmName ?? "" }
+        ? {
+            ...emptyForm,
+            ...initialValues,
+            year: normalizeProjectYear(initialValues.year ?? ""),
+            engineer: initialValues.engineer ?? "",
+            pmName: initialValues.pmName ?? "",
+          }
         : emptyForm,
     );
     setUniqueIdError(null);
@@ -511,7 +519,8 @@ export function NewProjectDialog({
   function handleAwardDateChange(dateValue: string) {
     updateField("awardDate", dateValue);
     if (dateValue) {
-      const year = dateValue.slice(2, 4);
+      // date input is YYYY-MM-DD → store full calendar year
+      const year = normalizeProjectYear(dateValue.slice(0, 4));
       if (year) {
         updateField("year", year);
       }
@@ -611,10 +620,15 @@ export function NewProjectDialog({
     setUniqueIdError(null);
     setSaving(true);
     try {
+      const year = normalizeProjectYear(values.year);
       const result = await onSubmit?.({
         ...values,
-        uniqueId,
-        fullName,
+        year,
+        uniqueId: buildUniqueId(values.customer, year, values.no),
+        fullName: buildFullName(
+          buildUniqueId(values.customer, year, values.no),
+          values.projectName,
+        ),
         engineer: values.engineer.trim() || undefined,
         pmName: values.pmName.trim() || undefined,
         createOnBasecamp,
@@ -803,16 +817,22 @@ export function NewProjectDialog({
               type="text"
               name="year"
               inputMode="numeric"
-              pattern="[0-9]{2}"
-              maxLength={2}
-              placeholder="19"
+              pattern="[0-9]{4}"
+              maxLength={4}
+              placeholder="2026"
               value={values.year}
               onChange={(event) =>
                 updateField(
                   "year",
-                  event.target.value.replace(/\D/g, "").slice(0, 2),
+                  event.target.value.replace(/\D/g, "").slice(0, 4),
                 )
               }
+              onBlur={() => {
+                if (!values.year.trim()) {
+                  return;
+                }
+                updateField("year", normalizeProjectYear(values.year));
+              }}
               required
             />
           </label>
@@ -827,11 +847,12 @@ export function NewProjectDialog({
               onChange={(event) => updateField("no", event.target.value)}
               required
             />
-            {values.customer.trim() && values.year.trim().length >= 2 ? (
+            {values.customer.trim() &&
+            yearPartForUniqueId(values.year).length >= 2 ? (
               noSuggestion ? (
                 <span className="field-hint">
                   Highest UniqueID already used for {values.customer.trim()}
-                  {values.year.trim().slice(-2)}:{" "}
+                  {yearPartForUniqueId(values.year)}:{" "}
                   <strong>{noSuggestion.maxUniqueId}</strong> (No{" "}
                   {noSuggestion.maxNoLabel}). Suggested next:{" "}
                   <button
@@ -847,7 +868,7 @@ export function NewProjectDialog({
               ) : (
                 <span className="field-hint">
                   No UniqueIDs yet for {values.customer.trim()}
-                  {values.year.trim().slice(-2)}. Suggested start:{" "}
+                  {yearPartForUniqueId(values.year)}. Suggested start:{" "}
                   <button
                     type="button"
                     className="inline-link suggestion-link"
