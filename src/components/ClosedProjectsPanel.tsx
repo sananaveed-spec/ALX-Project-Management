@@ -244,31 +244,21 @@ export function ClosedProjectsPanel() {
 
   function handleExport(format: "excel" | "pdf" | "csv") {
     setExportError(null);
-    setExportDropdownOpen(false);
-    const exportRows = visibleRows.map(rowToExportCells);
-    const stamp = new Date().toISOString().slice(0, 10);
     try {
+      const exportRows = visibleRows.map(rowToExportCells);
       if (format === "excel") {
         exportTableAsExcel(
           [...EXPORT_HEADERS],
           exportRows,
-          `Close-Projects-${stamp}.xlsx`,
+          "closed-projects",
           "Close Projects",
         );
       } else if (format === "pdf") {
-        exportTableAsPdf(
-          [...EXPORT_HEADERS],
-          exportRows,
-          `Close-Projects-${stamp}.pdf`,
-          "Close Projects",
-        );
+        exportTableAsPdf("Close Projects", [...EXPORT_HEADERS], exportRows);
       } else {
-        exportTableAsCsv(
-          [...EXPORT_HEADERS],
-          exportRows,
-          `Close-Projects-${stamp}.csv`,
-        );
+        exportTableAsCsv([...EXPORT_HEADERS], exportRows, "closed-projects");
       }
+      setExportDropdownOpen(false);
     } catch (err) {
       setExportError(
         err instanceof Error ? err.message : "Export failed.",
