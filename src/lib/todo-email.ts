@@ -247,7 +247,7 @@ export function todoEmailAsOfDate(now = new Date()): string {
 
 /**
  * Live cron decision for "now" in Asia/Karachi:
- * skip weekend + holidays; Mon–Thu Today(+pending 1–30); Fri Pending 30d.
+ * skip weekend + holidays; Mon–Thu that day's reminders only; Fri Pending 30d.
  */
 export function shouldSendTodoEmail(
   holidays: Holiday[],
@@ -289,7 +289,7 @@ export function shouldSendTodoEmail(
     reason:
       kind === "pending30"
         ? "Friday — send Pending (1–30 days) digest."
-        : "Weekday — send Today + Pending (1–30 days) digest.",
+        : "Weekday — send only that day's (Today) reminders.",
   };
 }
 
@@ -362,20 +362,11 @@ export function filterTodoEmailRows(
   kind: TodoEmailKind,
   asOfDate: string,
 ): ProjectDetailEntry[] {
-  // Mon–Thu: Today tab items + Pending 1–30 (same open to-dos you see in the app).
-  // Friday: Pending 1–30 only.
+  // Mon–Thu: only reminders dated that day (Today tab).
+  // Friday: Pending overdue 1–30 days.
   if (kind === "today") {
     return sortTodoEmailRows(
-      rows.filter((row) => {
-        if (isTodayReminder(row, asOfDate)) {
-          return true;
-        }
-        if (!isPendingReminder(row, asOfDate)) {
-          return false;
-        }
-        const days = reminderDaysOverdue(row, asOfDate);
-        return days !== null && days >= 1 && days <= TODO_EMAIL_ROLLING_DAYS;
-      }),
+      rows.filter((row) => isTodayReminder(row, asOfDate)),
     );
   }
 

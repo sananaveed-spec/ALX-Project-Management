@@ -1,3 +1,4 @@
+import type { ClosedProjectEntry } from "@/lib/closed-projects";
 import type { CompletedProjectEntry } from "@/lib/completed-projects";
 import {
   isPartialOrFullInvoiced,
@@ -34,6 +35,7 @@ export function cascadeFilterDetails(
 
 export type DeleteBlockerReason =
   | "Project History"
+  | "Close Projects"
   | "Completed Projects"
   | "Invoicing History";
 
@@ -45,11 +47,12 @@ export type DeleteBlocker = {
 
 /**
  * Block Naming / Active Projects delete when history must be preserved.
- * Invoicing History = Active Projects with Invoiced PARTIAL/FULL.
+ * Invoicing History = Active or Closed with Invoiced PARTIAL/FULL.
  */
 export function findProjectDeleteBlockers(input: {
   uniqueIds: string[];
   details: ProjectDetailEntry[];
+  closed?: ClosedProjectEntry[];
   completed: CompletedProjectEntry[];
   history: ProjectHistoryEntry[];
 }): DeleteBlocker[] {
@@ -68,11 +71,16 @@ export function findProjectDeleteBlockers(input: {
   const historyIds = new Set(
     input.history.map((row) => normalizeId(row.displayId)).filter(Boolean),
   );
+  const closedIds = new Set(
+    (input.closed ?? [])
+      .map((row) => normalizeId(row.displayId))
+      .filter(Boolean),
+  );
   const completedIds = new Set(
     input.completed.map((row) => normalizeId(row.displayId)).filter(Boolean),
   );
   const invoicingIds = new Set(
-    input.details
+    [...input.details, ...(input.closed ?? [])]
       .filter((row) => isPartialOrFullInvoiced(row.invoiced))
       .map((row) => normalizeId(row.displayId))
       .filter(Boolean),
@@ -83,6 +91,9 @@ export function findProjectDeleteBlockers(input: {
     const reasons: DeleteBlockerReason[] = [];
     if (historyIds.has(normalized)) {
       reasons.push("Project History");
+    }
+    if (closedIds.has(normalized)) {
+      reasons.push("Close Projects");
     }
     if (completedIds.has(normalized)) {
       reasons.push("Completed Projects");
@@ -159,4 +170,4 @@ export function applyCascadeDelete(input: {
 }
 
 export const CASCADE_DELETE_CONFIRM =
-  "This permanently deletes matching rows from Project Naming and Active Projects. Delete is blocked if the project exists in Project History, Completed Projects, or Invoicing History (PARTIAL/FULL).";
+  "This permanently deletes matching rows from Project Naming and Active Projects. Delete is blocked if the project exists in Project History, Close Projects, Completed Projects, or Invoicing History (PARTIAL/FULL).";

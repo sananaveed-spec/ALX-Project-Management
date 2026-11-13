@@ -572,7 +572,7 @@ export function CompletedProjectsPanel() {
                     >
                       {query.trim()
                         ? "No completed projects match this search."
-                        : "No completed projects yet. Mark Project Completed on the Active Projects tab, or use Import."}
+                        : "No completed projects yet. Mark Project Completed on Active Projects or Close Projects, or use Import."}
                     </td>
                   </tr>
                 ) : (

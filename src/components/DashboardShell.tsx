@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ClosedProjectsPanel } from "@/components/ClosedProjectsPanel";
 import { CompletedProjectsPanel } from "@/components/CompletedProjectsPanel";
 import { CustomerNamePanel } from "@/components/CustomerNamePanel";
 import { EngineerLoadPanel } from "@/components/EngineerLoadPanel";
@@ -50,6 +51,8 @@ export function DashboardShell({ userName }: DashboardShellProps) {
               <TodayToDoPanel />
             ) : activeTab === "projectHistory" ? (
               <ProjectHistoryPanel />
+            ) : activeTab === "closedProjects" ? (
+              <ClosedProjectsPanel />
             ) : activeTab === "completedProjects" ? (
               <CompletedProjectsPanel />
             ) : activeTab === "invoicingHistory" ? (

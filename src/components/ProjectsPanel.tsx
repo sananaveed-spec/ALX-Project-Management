@@ -96,6 +96,7 @@ const PROJECT_TABLE_HEADERS = [
   "Date",
   "Last Email Received (Client)",
   "Date",
+  "Close Project",
   "Project Completed",
   "Priority",
   "ETA(days)",
@@ -133,6 +134,11 @@ type MultilineEditorState = {
   label: string;
   projectLabel: string;
   draft: string;
+};
+
+type CloseConfirmState = {
+  rowId: string;
+  projectLabel: string;
 };
 
 type CompleteConfirmState = {
@@ -338,6 +344,10 @@ export function ProjectsPanel() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [multilineEditor, setMultilineEditor] =
     useState<MultilineEditorState | null>(null);
+  const [closeConfirm, setCloseConfirm] = useState<CloseConfirmState | null>(
+    null,
+  );
+  const [closingId, setClosingId] = useState<string | null>(null);
   const [completeConfirm, setCompleteConfirm] =
     useState<CompleteConfirmState | null>(null);
   const [completingId, setCompletingId] = useState<string | null>(null);
@@ -364,6 +374,7 @@ export function ProjectsPanel() {
   const prioritySearchRef = useRef<HTMLInputElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const editorTitleId = useId();
+  const closeTitleId = useId();
   const completeTitleId = useId();
   const pmCommentsTitleId = useId();
   const statusPmTitleId = useId();
@@ -2075,10 +2086,65 @@ export function ProjectsPanel() {
     }
   }
 
-  function requestCompleteProject(row: ProjectDetailEntry) {
-    if (isPartialOrFullInvoiced(row.invoiced)) {
+  function requestCloseProject(row: ProjectDetailEntry) {
+    setCloseConfirm({
+      rowId: row.id,
+      projectLabel: row.displayId || row.projectName || "Project",
+    });
+  }
+
+  function cancelCloseProject() {
+    setCloseConfirm(null);
+  }
+
+  async function confirmCloseProject() {
+    if (!closeConfirm) {
+      return;
+    }
+    const rowId = closeConfirm.rowId;
+    const previous = persistedRowsRef.current;
+    setClosingId(rowId);
+    setError(null);
+
+    try {
+      const response = await fetch("/api/closed-projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: rowId }),
+      });
+      const data = (await response.json()) as {
+        error?: string;
+        projectDetails?: ProjectDetailEntry[];
+      };
+      if (!response.ok) {
+        throw new Error(data.error || "Failed to close project.");
+      }
+      const next = data.projectDetails ?? [];
+      persistedRowsRef.current = next;
+      setRows(next);
+      setCloseConfirm(null);
+    } catch (closeError) {
+      setRows(previous);
       setError(
-        "Cannot complete — project is on Invoicing History (PARTIAL/FULL). Completing would remove that invoicing history from Active Projects.",
+        closeError instanceof Error
+          ? closeError.message
+          : "Failed to close project.",
+      );
+      setCloseConfirm(null);
+    } finally {
+      setClosingId(null);
+    }
+  }
+
+  function requestCompleteProject(row: ProjectDetailEntry) {
+    const invoiced = row.invoiced.trim().toUpperCase().replace(/\s+/g, " ");
+    if (
+      isPartialOrFullInvoiced(row.invoiced) &&
+      invoiced !== "FULL" &&
+      !isFullyInvoiced(row)
+    ) {
+      setError(
+        "Cannot complete — project is still PARTIAL on Invoicing History. Finish to FULL (100%), then complete; invoice history is copied to Completed Projects.",
       );
       return;
     }
@@ -2551,11 +2617,32 @@ export function ProjectsPanel() {
                           type="checkbox"
                           className="table-complete-checkbox"
                           checked={
+                            closeConfirm?.rowId === row.id ||
+                            closingId === row.id
+                          }
+                          disabled={
+                            closingId === row.id || completingId === row.id
+                          }
+                          aria-label={`Close project ${row.projectName || row.displayId}`}
+                          onChange={(event) => {
+                            if (event.target.checked) {
+                              requestCloseProject(row);
+                            }
+                          }}
+                        />
+                      </td>
+                      <td className="table-complete-cell">
+                        <input
+                          type="checkbox"
+                          className="table-complete-checkbox"
+                          checked={
                             completeConfirm?.rowId === row.id ||
                             completingId === row.id
                           }
-                          disabled={completingId === row.id}
-                          aria-label={`Project completed for ${row.projectName || row.displayId}`}
+                          disabled={
+                            completingId === row.id || closingId === row.id
+                          }
+                          aria-label={`Complete project ${row.projectName || row.displayId}`}
                           onChange={(event) => {
                             if (event.target.checked) {
                               requestCompleteProject(row);
@@ -3706,6 +3793,60 @@ export function ProjectsPanel() {
           )
         : null}
 
+      {mounted && closeConfirm
+        ? createPortal(
+            <div className="dialog-backdrop" role="presentation">
+              <div
+                className="dialog-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby={closeTitleId}
+              >
+                <div className="dialog-header">
+                  <h2 id={closeTitleId} className="dialog-title">
+                    Confirmation
+                  </h2>
+                  <button
+                    type="button"
+                    className="dialog-close"
+                    aria-label="Close"
+                    onClick={cancelCloseProject}
+                  >
+                    ×
+                  </button>
+                </div>
+                <p className="dialog-subtitle">
+                  {closeConfirm.projectLabel}
+                </p>
+                <p className="form-message">
+                  Close this project? It will move to Close Projects and leave
+                  Active Projects. You can Complete it later from the Close
+                  Projects tab.
+                </p>
+                <div className="dialog-actions">
+                  <button
+                    type="button"
+                    className="button secondary"
+                    disabled={closingId === closeConfirm.rowId}
+                    onClick={cancelCloseProject}
+                  >
+                    No
+                  </button>
+                  <button
+                    type="button"
+                    className="button primary"
+                    disabled={closingId === closeConfirm.rowId}
+                    onClick={() => void confirmCloseProject()}
+                  >
+                    {closingId === closeConfirm.rowId ? "Closing…" : "Yes"}
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+
       {mounted && completeConfirm
         ? createPortal(
             <div className="dialog-backdrop" role="presentation">
@@ -3732,7 +3873,9 @@ export function ProjectsPanel() {
                   {completeConfirm.projectLabel}
                 </p>
                 <p className="form-message">
-                  Project is completed. Is this correct?
+                  Project is completed. Is this correct? It will move to
+                  Completed Projects (invoice history is copied there) and leave
+                  Active Projects / Invoicing History.
                 </p>
                 <div className="dialog-actions">
                   <button

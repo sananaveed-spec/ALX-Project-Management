@@ -5,6 +5,7 @@ import {
   formatDeleteBlockedMessage,
 } from "@/lib/cascade-delete-projects";
 import {
+  readClosedProjects,
   readCompletedProjects,
   readProjectDetails,
   readProjectHistory,
@@ -37,9 +38,10 @@ export async function POST(request: Request) {
       );
     }
 
-    const [naming, details, completed, history] = await Promise.all([
+    const [naming, details, closed, completed, history] = await Promise.all([
       readProjects(),
       readProjectDetails(),
+      readClosedProjects(),
       readCompletedProjects(),
       readProjectHistory(),
     ]);
@@ -47,6 +49,7 @@ export async function POST(request: Request) {
     const blockers = findProjectDeleteBlockers({
       uniqueIds,
       details,
+      closed,
       completed,
       history,
     });

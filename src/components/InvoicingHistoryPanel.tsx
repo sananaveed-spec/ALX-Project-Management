@@ -119,17 +119,28 @@ export function InvoicingHistoryPanel() {
 
     async function loadRows() {
       try {
-        const response = await fetch("/api/project-details", {
-          cache: "no-store",
-        });
-        if (!response.ok) {
+        const [activeResponse, closedResponse] = await Promise.all([
+          fetch("/api/project-details", { cache: "no-store" }),
+          fetch("/api/closed-projects", { cache: "no-store" }),
+        ]);
+        if (!activeResponse.ok) {
           throw new Error("Could not load invoicing history.");
         }
-        const data = (await response.json()) as {
+        const activeData = (await activeResponse.json()) as {
           projectDetails?: ProjectDetailEntry[];
         };
+        const closedData = closedResponse.ok
+          ? ((await closedResponse.json()) as {
+              closedProjects?: ProjectDetailEntry[];
+            })
+          : { closedProjects: [] };
         if (!cancelled) {
-          setRows(filterInvoicingHistoryRows(data.projectDetails ?? []));
+          setRows(
+            filterInvoicingHistoryRows([
+              ...(activeData.projectDetails ?? []),
+              ...(closedData.closedProjects ?? []),
+            ]),
+          );
           setError(null);
         }
       } catch (loadError) {

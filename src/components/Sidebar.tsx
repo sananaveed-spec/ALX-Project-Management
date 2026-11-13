@@ -11,6 +11,7 @@ export type DashboardTab =
   | "readyToInvoice"
   | "todayToDo"
   | "projectHistory"
+  | "closedProjects"
   | "completedProjects"
   | "invoicingHistory"
   | "engineerLoad"
@@ -24,6 +25,7 @@ const NAV_ITEMS: { id: DashboardTab; label: string }[] = [
   { id: "statusMenu", label: "Lookup Data" },
   { id: "readyToInvoice", label: "Ready to Invoice" },
   { id: "projectHistory", label: "Project History" },
+  { id: "closedProjects", label: "Close Projects" },
   { id: "completedProjects", label: "Completed Projects" },
   { id: "invoicingHistory", label: "Invoicing History" },
   { id: "engineerLoad", label: "Engineer Load" },

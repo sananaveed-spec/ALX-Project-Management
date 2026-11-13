@@ -1,6 +1,10 @@
 import { mkdir, readFile, writeFile } from "fs/promises";
 import path from "path";
 import {
+  normalizeClosedProject,
+  type ClosedProjectEntry,
+} from "@/lib/closed-projects";
+import {
   normalizeCompletedProject,
   type CompletedProjectEntry,
 } from "@/lib/completed-projects";
@@ -51,6 +55,10 @@ function projectDetailsPath() {
 
 function completedProjectsPath() {
   return path.join(getDataDir(), "completed-projects.json");
+}
+
+function closedProjectsPath() {
+  return path.join(getDataDir(), "closed-projects.json");
 }
 
 function projectHistoryPath() {
@@ -225,6 +233,44 @@ export async function writeCompletedProjects(rows: CompletedProjectEntry[]) {
   const normalized = rows.map(normalizeCompletedProject);
   await writeFile(
     completedProjectsPath(),
+    JSON.stringify(normalized, null, 2),
+    "utf8",
+  );
+}
+
+export async function readClosedProjects(): Promise<ClosedProjectEntry[]> {
+  await ensureDataDir();
+
+  try {
+    const raw = await readFile(closedProjectsPath(), "utf8");
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      throw new Error("Invalid closed-projects.json format.");
+    }
+
+    return parsed
+      .filter(
+        (item): item is Partial<ClosedProjectEntry> & { id: string } =>
+          typeof item === "object" &&
+          item !== null &&
+          typeof (item as { id?: unknown }).id === "string",
+      )
+      .map(normalizeClosedProject);
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw error;
+    }
+
+    await writeClosedProjects([]);
+    return [];
+  }
+}
+
+export async function writeClosedProjects(rows: ClosedProjectEntry[]) {
+  await ensureDataDir();
+  const normalized = rows.map(normalizeClosedProject);
+  await writeFile(
+    closedProjectsPath(),
     JSON.stringify(normalized, null, 2),
     "utf8",
   );

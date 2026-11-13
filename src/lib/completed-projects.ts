@@ -1,4 +1,5 @@
 import {
+  partialInvoicesDisplay,
   todayIsoInLosAngeles,
   type ProjectDetailEntry,
 } from "@/lib/project-details";
@@ -51,6 +52,14 @@ export function normalizeCompletedProject(
 export function completedProjectFromDetail(
   row: ProjectDetailEntry,
 ): CompletedProjectEntry {
+  // Keep PARTIAL/FULL invoice text on Completed so history survives leaving Active.
+  const partialInvoiceDate = partialInvoicesDisplay(row);
+  const invoicedDate =
+    row.fullInvoicedDate.trim() ||
+    (row.invoiced.trim().toUpperCase() === "FULL"
+      ? todayIsoInLosAngeles()
+      : "");
+
   return normalizeCompletedProject({
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     displayId: row.displayId,
@@ -59,10 +68,8 @@ export function completedProjectFromDetail(
     date: row.projectInitializeDate,
     engineer: row.engineer,
     projectHistory: row.revisionHistory,
-    partialInvoiceDate: row.partialInvoicingDate.trim()
-      ? row.partialInvoicingDate
-      : row.partialInvoiceHistory,
-    invoicedDate: row.fullInvoicedDate,
+    partialInvoiceDate,
+    invoicedDate,
     finalReportSentOn: row.finalSccsSent,
     projectCompleted: todayIsoInLosAngeles(),
     labelsShipped: "",

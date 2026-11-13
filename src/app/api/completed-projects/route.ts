@@ -11,7 +11,10 @@ import {
   writeCompletedProjects,
   writeProjectDetails,
 } from "@/lib/data-store";
-import { isPartialOrFullInvoiced } from "@/lib/project-details";
+import {
+  isFullyInvoiced,
+  isPartialOrFullInvoiced,
+} from "@/lib/project-details";
 
 export const runtime = "nodejs";
 
@@ -51,11 +54,18 @@ export async function POST(request: Request) {
       );
     }
 
-    if (isPartialOrFullInvoiced(project.invoiced)) {
+    // FULL (or 100% invoiced) may complete — invoice dates copy onto Completed.
+    // PARTIAL still mid-billing stays blocked so Invoicing History is not lost early.
+    const invoiced = project.invoiced.trim().toUpperCase().replace(/\s+/g, " ");
+    if (
+      isPartialOrFullInvoiced(project.invoiced) &&
+      invoiced !== "FULL" &&
+      !isFullyInvoiced(project)
+    ) {
       return NextResponse.json(
         {
           error:
-            "Cannot complete — project is on Invoicing History (PARTIAL/FULL). Completing would remove that invoicing history from Active Projects.",
+            "Cannot complete — project is still PARTIAL on Invoicing History. Finish to FULL (100%), then complete; invoice history is copied to Completed Projects.",
         },
         { status: 409 },
       );

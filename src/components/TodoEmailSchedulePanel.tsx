@@ -149,7 +149,7 @@ export function TodoEmailSchedulePanel() {
     todayPreview?.kind === "pending30"
       ? "Pending (1–30 days)"
       : todayPreview?.kind === "today"
-        ? "Today + Pending (1–30 days)"
+        ? "Today only"
         : "—";
 
   return (
@@ -160,8 +160,8 @@ export function TodoEmailSchedulePanel() {
           <p className="todo-email-subtitle">
             Live send at <strong>3:00 PM Pakistan Time</strong> via Hetzner cron.
             The server builds the list from the <em>current</em> Today / Pending
-            data at send time (not weeks earlier). Mon–Thu: Today + Pending
-            1–30 days · Friday: Pending 1–30 days · skips weekends and Holidays.
+            data at send time (not weeks earlier). Mon–Thu: that day’s reminders
+            only · Friday: Pending last 30 days · skips weekends and Holidays.
             From and To come from the fields below (saved on this tab).
           </p>
         </div>
@@ -256,9 +256,10 @@ export function TodoEmailSchedulePanel() {
             )}
           </div>
           <span className="todo-email-hint">
-            Preview refreshes whenever you open this tab. At 3:00 PM PKT the
-            server rebuilds from Active Projects again, then sends via Graph
-            using the From / To saved here. See DEPLOY.md for the cron command.
+            Mon–Thu: only that day’s reminders. Friday: Pending (last 30 days).
+            Preview refreshes when you open this tab. At 3:00 PM PKT the server
+            rebuilds from Active Projects and sends via Graph using From / To
+            here. See DEPLOY.md for the cron command.
           </span>
         </div>
       </div>
